@@ -1,5 +1,6 @@
 """User-run regression tests: fake services and temporary files only."""
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace as NS
@@ -11,8 +12,8 @@ from fastapi.testclient import TestClient
 
 from panelforge.application.video_factory import VideoFactoryService, FactoryConflict
 from panelforge.application.video_factory_workflows import FactoryWorkflows
-from panelforge.domain.video_factory import configuration, apply_preset, new_item
-from panelforge.domain.video_factory_results import delivery_material, instagram_text, variant_text
+from panelforge.domain.video_factory import configuration, apply_preset, new_item, fingerprint
+from panelforge.domain.video_factory_results import can_archive, delivery_material, instagram_text, variant_text
 from panelforge.domain.h3_render import H3RenderInputMode
 from panelforge.domain.video_lab import VideoAspectRatio, VideoLabSettings
 from panelforge.features.lab.video_factory_web import video_factory_router
@@ -66,6 +67,18 @@ class FactoryResultsTest(unittest.TestCase):
         item["steps"]["dlss"].update(status="succeeded", output={"asset_id": "asset-" + "b" * 32})
         self.assertEqual(delivery_material(item)["stage"], "dlss")
 
+    def test_new_source_families_take_precedence_after_customization(self):
+        for kind, family in (("image_transition", "Construction"), ("cooking_recipe", "Recettes")):
+            for origin in (None, "little_men", "little_men_experimental", "lips"):
+                with self.subTest(kind=kind, origin=origin):
+                    item = completed()
+                    item["source"] = dict(kind=kind)
+                    item["config"].update(preset="custom", preset_origin=origin)
+                    item["launch_snapshot"] = deepcopy(item["config"])
+                    material = delivery_material(item)
+                    self.assertEqual(material["family"], family)
+                    self.assertEqual(material["name"], item["name"])
+
     def test_preset_defaults_do_not_mutate_the_source(self):
         config = configuration()
         config["references"] = [dict(asset_id="asset-image", role="unassigned")]
@@ -86,6 +99,97 @@ class FactoryOutputFilesTest(unittest.TestCase):
         self.outputs = VideoFactoryOutputs(Path(self.temp.name) / "dlss", self.assets)
         self.item = completed(self.asset.asset_id)
         self.material = delivery_material(self.item)
+
+    def test_new_families_publish_base_and_dlss_under_their_local_completion_dates(self):
+        for kind, family in (("image_transition", "Construction"), ("cooking_recipe", "Recettes")):
+            with self.subTest(kind=kind):
+                item = completed(self.asset.asset_id)
+                item["source"] = dict(kind=kind)
+                item["steps"]["video"]["finished_at"] = datetime(2026, 10, 15, 12).astimezone().isoformat()
+                material = delivery_material(item)
+                base = self.outputs.publish(self.outputs.plan(item, material, {}), material)
+                item["delivery"] = base
+                self.assertEqual(Path(base["folder"]), self.outputs.root / family / "2026-10-15")
+                self.assertEqual(Path(base["video_path"]).parent, Path(base["folder"]) / "base video")
+                self.assertEqual(base["key"], delivery_material(item)["key"])
+
+                enhanced = self.assets.create(b"enhanced fixture", media_type="video/mp4")
+                item["steps"]["dlss"].update(status="succeeded", output={"asset_id": enhanced.asset_id},
+                    finished_at=datetime(2026, 10, 16, 12).astimezone().isoformat())
+                material = delivery_material(item)
+                dlss = self.outputs.publish(self.outputs.plan(item, material, base), material)
+                item["delivery"] = dlss
+                self.assertEqual(dlss["family"], family)
+                self.assertEqual(Path(dlss["folder"]), self.outputs.root / family / "2026-10-16")
+                self.assertEqual(Path(dlss["video_path"]).parent, Path(dlss["folder"]))
+                self.assertEqual(Path(dlss["text_path"]).parent, Path(dlss["folder"]))
+                self.assertEqual(Path(base["video_path"]).read_bytes(), b"immutable video fixture")
+                self.assertEqual(Path(dlss["video_path"]).read_bytes(), b"enhanced fixture")
+                self.assertEqual(dlss["key"], delivery_material(item)["key"])
+
+    def test_legacy_export_keeps_its_folder_when_instagram_arrives_later(self):
+        for kind in ("image_transition", "cooking_recipe"):
+            with self.subTest(kind=kind):
+                item = completed(self.asset.asset_id)
+                item["source"] = dict(kind=kind)
+                item["config"]["preset_origin"] = None
+                item["steps"]["social"]["output"] = {}
+                legacy = delivery_material(item)
+                legacy.pop("key")
+                legacy["family"] = "Autres"
+                legacy["key"] = fingerprint(legacy)
+                saved = self.outputs.publish(self.outputs.plan(item, legacy, {}), legacy)
+                saved.pop("family")  # Persisted before the new classification existed.
+                item["delivery"] = saved
+                self.assertEqual(delivery_material(item)["key"], saved["key"])
+
+                item["steps"]["social"]["output"] = {"variants": [deepcopy(VARIANT)]}
+                material = delivery_material(item)
+                updated = self.outputs.publish(self.outputs.plan(item, material, saved), material)
+                self.assertEqual(updated["folder"], saved["folder"])
+                self.assertEqual(updated["video_path"], saved["video_path"])
+                self.assertEqual(updated["family"], "Autres")
+                self.assertEqual(Path(updated["text_path"]).read_text(encoding="utf-8"), material["text"])
+                self.assertFalse((self.outputs.root / "Construction").exists())
+                self.assertFalse((self.outputs.root / "Recettes").exists())
+
+    def test_new_family_is_retained_when_instagram_arrives_after_midnight(self):
+        for kind, family in (("image_transition", "Construction"), ("cooking_recipe", "Recettes")):
+            with self.subTest(kind=kind):
+                item = completed(self.asset.asset_id)
+                item["source"] = dict(kind=kind)
+                item["steps"]["social"]["output"] = {}
+                material = delivery_material(item)
+                saved = self.outputs.publish(self.outputs.plan(item, material, {}), material)
+                item["delivery"] = saved
+                item["steps"]["social"].update(finished_at="2026-09-28T12:00:00+00:00",
+                    output={"variants": [deepcopy(VARIANT)]})
+                material = delivery_material(item)
+                updated = self.outputs.publish(self.outputs.plan(item, material, saved), material)
+                item["delivery"] = updated
+                self.assertEqual(updated["family"], family)
+                self.assertEqual(updated["folder"], saved["folder"])
+                self.assertEqual(updated["video_path"], saved["video_path"])
+                self.assertEqual(updated["key"], delivery_material(item)["key"])
+
+    def test_new_dlss_after_legacy_base_uses_new_family_and_keeps_the_old_file(self):
+        for kind, family in (("image_transition", "Construction"), ("cooking_recipe", "Recettes")):
+            with self.subTest(kind=kind):
+                item = completed(self.asset.asset_id)
+                item["config"]["preset_origin"] = None
+                legacy = delivery_material(item)
+                saved = self.outputs.publish(self.outputs.plan(item, legacy, {}), legacy)
+                saved.pop("family")
+                item["source"] = dict(kind=kind)
+                item["delivery"] = saved
+                enhanced = self.assets.create(b"new DLSS fixture", media_type="video/mp4")
+                item["steps"]["dlss"].update(status="succeeded", output={"asset_id": enhanced.asset_id})
+                material = delivery_material(item)
+                updated = self.outputs.publish(self.outputs.plan(item, material, saved), material)
+                self.assertEqual(Path(saved["folder"]).parent.name, "Autres")
+                self.assertEqual(Path(updated["folder"]).parent.name, family)
+                self.assertEqual(Path(saved["video_path"]).read_bytes(), b"immutable video fixture")
+                self.assertEqual(Path(updated["video_path"]).read_bytes(), b"new DLSS fixture")
 
     def test_publish_is_idempotent_with_base_nested_and_utf8_text_at_date_root(self):
         delivery = self.outputs.plan(self.item, self.material, {})
@@ -174,6 +278,32 @@ class FactoryOutputFilesTest(unittest.TestCase):
 
 
 class FactoryPatchServiceTest(unittest.TestCase):
+    def test_legacy_deliveries_are_not_reexported_and_remain_archivable(self):
+        for kind in ("image_transition", "cooking_recipe"):
+            for origin, family in ((None, "Autres"), ("lips", "Levres"), ("little_men", "Petits hommes")):
+                with self.subTest(kind=kind, origin=origin):
+                    item = completed()
+                    item["source"] = dict(kind=kind)
+                    item["config"]["preset_origin"] = origin
+                    for stage in ("plan", "prompt"):
+                        item["steps"][stage]["status"] = "succeeded"
+                    legacy = delivery_material(item)
+                    legacy.pop("key")
+                    legacy["family"] = family
+                    item["delivery"] = dict(key=fingerprint(legacy), asset_id=legacy["asset_id"],
+                        folder=f"D:/output/{family}/2026-09-26", status="succeeded")
+                    store, adapter, outputs = MemoryStore(), FakeWorkflows(), Mock()
+                    store.value["items"] = [item]
+                    before = deepcopy(item["delivery"])
+                    service = VideoFactoryService(store=store, adapter=adapter, outputs=outputs)
+                    service._start_delivery()
+                    outputs.plan.assert_not_called()
+                    outputs.publish.assert_not_called()
+                    result = service.snapshot()["items"][0]
+                    self.assertEqual(result["delivery"], before)
+                    self.assertTrue(can_archive(result))
+                    self.assertEqual(adapter.calls, [])
+
     def test_export_failure_and_retry_never_replay_a_generation(self):
         store, adapter, outputs = MemoryStore(), FakeWorkflows(), Mock()
         item = completed(); store.value["items"] = [item]

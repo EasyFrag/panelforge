@@ -2,7 +2,7 @@
 from panelforge.domain.krea2_batch import Krea2AspectRatio, Krea2PromptLanguage
 from panelforge.domain.krea2_sampling import Krea2AssistedSettings, sampling_from_dict
 from panelforge.domain.krea2_assisted_workflows import workflow_selection_from_dict
-from .cooking_recipe_prompting import image_instruction
+from .cooking_recipe_prompting import image_instruction, krea_image_instruction
 
 
 class CookingRecipeProduction:
@@ -40,6 +40,9 @@ class CookingRecipeProduction:
         return dict(engine="krea", project_id=p.project_id)
 
     def submit_master(self, link, snapshot, checkpoint):
+        return self._submit_krea(link, snapshot["settings"]["aspect_ratio"], checkpoint)
+
+    def _submit_krea(self, link, aspect_ratio, checkpoint):
         p = self.krea.get(link["project_id"])
         if not p.current_prompt:
             for event in self.krea.stream_chat(p.project_id, p.intention, expected_branch_id=p.active_branch_id,
@@ -58,7 +61,7 @@ class CookingRecipeProduction:
                 if preset is None:
                     raise ValueError("Le preset KREA2 de cet essai est absent.")
                 settings = Krea2AssistedSettings(model_name=preset.settings.model_name,
-                    loras=preset.settings.loras, aspect_ratio=Krea2AspectRatio(snapshot["settings"]["aspect_ratio"]),
+                    loras=preset.settings.loras, aspect_ratio=Krea2AspectRatio(aspect_ratio),
                     megapixels=2.1, sampling=sampling_from_dict(None, default_preset_id="finish_4"),
                     workflow=workflow_selection_from_dict(dict(recipe_id="krea2-flux-klein", version="1.0.0")))
                 p = self.krea.prepare_attempt(p.project_id, prompt=p.current_prompt, settings=settings,
@@ -73,8 +76,30 @@ class CookingRecipeProduction:
         return link
 
     def prepare_image(self, snapshot, shot, role, start, feedback, key):
+        if shot.get("image_engine", "h3") == "krea2":
+            if role != "start" or shot["mode"] != "animate":
+                raise ValueError("KREA2 prépare uniquement une image de départ par plan.")
+            settings = snapshot["settings"]
+            if not settings.get("style_preset_id"):
+                raise ValueError("Choisis le preset KREA2 dans Univers.")
+            p = self.krea.create_project(name=("Recette · " + shot["title"])[:120],
+                intention=krea_image_instruction(snapshot, shot, feedback), model_id=settings["model_id"],
+                reference_asset_id=snapshot["master_asset_id"], reference_filename="Plat terminé · Univers",
+                style_preset_id=settings["style_preset_id"], assistance_recipe_version="6.0.0",
+                prompt_language=Krea2PromptLanguage.ENGLISH, local_inspiration_enabled=False, managed_key=key)
+            return dict(engine="krea", project_id=p.project_id, aspect_ratio=settings["aspect_ratio"])
+        reference_role = ("Plat terminé : identité des aliments, palette et texture. "
+            "La scène complète précise leur état et le matériel nécessaire. Respecter le monde demandé même si la référence comporte une matière réaliste.")
+        if shot.get("purpose") == "presentation":
+            reference_role += " Présentation : conserver le plat terminé reconnaissable, avec son récipient et son contenu visibles."
+        elif shot.get("purpose") == "preparation":
+            reference_role += " Préparation : ne pas copier les ajouts, sauce ou dressage des étapes futures."
+        else:
+            reference_role += " Suivre le rôle culinaire du geste : préparation sans ajouts futurs, ou présentation du plat terminé."
+        if role == "end":
+            reference_role += " La composition à conserver est celle de l’image de départ ; modifier seulement le résultat du geste."
         refs = [dict(asset_id=snapshot["master_asset_id"], name="Plat terminé",
-                     role="Identité des ingrédients, palette et monde matériel. Ne pas copier l’état cuit ou dressé dans les étapes antérieures.")]
+                     role=reference_role)]
         p = self.minimax.ensure_managed_image(owner="cooking-recipes", key=key,
             name=("Recette · " + shot["title"] + (" · arrivée" if role == "end" else ""))[:120],
             source_asset_id=start if role == "end" else None, references=refs,
@@ -85,6 +110,8 @@ class CookingRecipeProduction:
                     request_id="recipe-" + key)
 
     def submit_image(self, link, checkpoint):
+        if link["engine"] == "krea":
+            return self._submit_krea(link, link["aspect_ratio"], checkpoint)
         p = self.minimax.get(link["project_id"])
         stage = next(s for s in p["stages"] if s["id"] == link["stage_id"])
         message = next((m for m in stage["messages"] if m["request_id"] == link["request_id"]), None)
@@ -126,6 +153,7 @@ class CookingRecipeProduction:
         return {i["id"]:i for i in self.factory.snapshot()["items"] if i["id"] in wanted} if ids else {}
 
     def submit_clip(self, entry, checkpoint):
+        # Recovery of historical jobs explicitly launched before the send-only UI.
         received = self.factory.receive([entry])
         identity = received["ids"][0]
         checkpoint(dict(factory_id=identity))
@@ -133,3 +161,8 @@ class CookingRecipeProduction:
         if item["status"] == "preparation":
             self.factory.launch([identity], {identity:item["revision"]})
         return identity
+
+    def receive_clips(self, entries):
+        """Create preparation cards only. Plan, prompt and render start in the factory."""
+        received = self.factory.receive(entries)
+        return dict(ids=received["ids"], added=received["added"])

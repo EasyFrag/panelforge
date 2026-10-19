@@ -75,6 +75,7 @@ class CookingRecipeService:
             shots = policy.Breakdown.model_validate(dict(title=name, shots=shots)).model_dump()["shots"]
         with self._lock:
             p = self._load(identity, version, editable=True)
+            previous_modes = {s["id"]:s["mode"] for s in p["shots"]}
             if shots is not None and shots != p["shots"]:
                 self._history(p)
                 p["shots"] = shots
@@ -82,7 +83,25 @@ class CookingRecipeService:
             if p["settings"] != settings:
                 p["approved"] = None
             p.update(name=name.strip(), settings=settings)
+            for shot in p["shots"]:
+                if previous_modes.get(shot["id"]) == "endpoints" and shot["mode"] == "animate":
+                    self._retain_available_start(p, shot)
             return self._save(p)
+
+    @staticmethod
+    def _retain_available_start(p, shot):
+        if policy.image_matches(p, shot, policy.selected_image(p, shot)):
+            return
+        source = policy.available_start(p, shot)
+        if source:
+            holder = p["media"][shot["id"]]
+            image = dict(id=policy.identity("image"), context_key=policy.image_key(p, shot),
+                start_context_key=policy.start_key(p, shot), start_asset_id=source["start_asset_id"],
+                end_asset_id=None, outputs={"start":deepcopy(source["outputs"]["start"])},
+                reused_start_from=source["id"], recipe_name=p["name"], shot_title=shot["title"],
+                master_asset_id=p["master_asset_id"], feedback="")
+            holder["images"].append(image)
+            holder["selected_image"] = image["id"]
 
     def set_master(self, identity, version, asset_id=None, content=None):
         with self._lock:
@@ -118,10 +137,19 @@ class CookingRecipeService:
             p["approved"] = self._approval(p)
             return self._save(p)
 
-    def enqueue(self, identity, version, command, kind, ids=(), feedback=""):
+    def enqueue(self, identity, version, command, kind, ids=(), feedback="", image_part="all", image_engine=None):
         if kind not in {"plan", "master", "image", "clip"}:
             raise ValueError("Action inconnue.")
-        signature = policy.digest(dict(kind=kind, ids=ids, feedback=feedback))
+        if image_part not in {"all", "end"} or (image_part == "end" and kind != "image"):
+            raise ValueError("La correction d’arrivée concerne uniquement les images d’un plan.")
+        if image_engine not in {None, "h3", "krea2"} or (image_engine is not None and (kind != "image" or image_part != "all")):
+            raise ValueError("Choisis H3 ou KREA2 pour générer les images complètes des plans.")
+        signature_data = dict(kind=kind, ids=ids, feedback=feedback)
+        if image_part != "all":
+            signature_data["image_part"] = image_part
+        if image_engine is not None:
+            signature_data["image_engine"] = image_engine
+        signature = policy.digest(signature_data)
         with self._lock:
             p = self._load(identity)
             if command in p["commands"]:
@@ -134,12 +162,33 @@ class CookingRecipeService:
             if kind == "master" and (not p["settings"]["style_preset_id"] or not p["settings"]["intention"]):
                 raise ValueError("Décris le plat et choisis son preset KREA2.")
             shots = self._selected_shots(p, ids) if kind in {"image", "clip"} else [None]
+            if kind == "image" and any((image_engine or s.get("image_engine", "h3")) == "krea2" for s in shots):
+                if not p["settings"].get("style_preset_id"):
+                    raise ValueError("Choisis le preset KREA2 dans Univers avant de générer les plans.")
+                if not any(preset["id"] == p["settings"]["style_preset_id"] for preset in self.production.presets()):
+                    raise ValueError("Le preset KREA2 enregistré est indisponible. Choisis un preset dans Univers.")
+            if image_engine is not None:
+                # The explicit validate-and-generate action saves the choice and batch atomically.
+                policy.Breakdown.model_validate(dict(title=p["name"], shots=p["shots"]))
+                self._history(p)
+                for shot in shots:
+                    shot["image_engine"] = image_engine
+                    if image_engine == "krea2":
+                        shot["mode"] = "animate"
+                p["approved"] = self._approval(p)
             if kind in {"image", "clip"} and p["approved"] != self._approval(p):
                 raise ValueError("Accepte le découpage actuel avant la génération.")
+            starts = {}
+            if image_part == "end":
+                for shot in shots:
+                    source = policy.available_start(p, shot)
+                    if shot["mode"] != "endpoints" or source is None:
+                        raise ValueError(shot["title"] + " : conserve un départ correspondant à ce plan à deux images.")
+                    starts[shot["id"]] = source
             if kind == "clip":
                 for shot in shots:
                     image = policy.selected_image(p, shot)
-                    if not image or image["context_key"] != policy.image_key(p, shot):
+                    if not policy.image_matches(p, shot, image):
                         raise ValueError(shot["title"] + " : choisis des images correspondant au plan actuel.")
                     if shot["mode"] == "endpoints" and not image.get("end_asset_id"):
                         raise ValueError(shot["title"] + " : image d’arrivée manquante.")
@@ -156,6 +205,12 @@ class CookingRecipeService:
                 if shot:
                     holder = p["media"].setdefault(shot["id"], dict(images=[], clips=[], selected_image=None, selected_clip=None))
                     job["context_key"] = policy.image_key(p, shot)
+                    if kind == "image":
+                        job.update(start_context_key=policy.start_key(p, shot), image_policy_version=policy.IMAGE_POLICY_VERSION)
+                        if image_part == "end":
+                            source = starts[shot["id"]]
+                            job.update(phase="end", outputs={"start":deepcopy(source["outputs"]["start"])},
+                                       reused_start_from=source["id"])
                     if kind == "clip":
                         image = policy.selected_image(p, shot)
                         key = policy.clip_key(p, shot, image)
@@ -172,6 +227,91 @@ class CookingRecipeService:
         self._wake.set()
         return p
 
+    def review_images(self, identity, version, ids, approved=True):
+        """Record the user's visual review of exact selected images, without generating."""
+        with self._lock:
+            p = self._refresh(self._load(identity, version))
+            if p["version"] != version:
+                raise RecipeConflict("Les images ont changé. Actualise pour revoir les résultats avant de les valider.")
+            shots = self._selected_shots(p, ids)
+            if approved:
+                for shot in shots:
+                    if not policy.image_matches(p, shot, policy.selected_image(p, shot)):
+                        raise ValueError(shot["title"] + " : les images doivent être complètes et correspondre au plan.")
+            for shot in shots:
+                holder = p["media"].get(shot["id"], {})
+                if approved:
+                    holder["image_review"] = dict(image_id=holder["selected_image"],
+                        context_key=policy.image_key(p, shot), reviewed_at=policy.now())
+                else:
+                    holder.pop("image_review", None)
+            return self._save(p)
+
+    def send(self, identity, version, ids, feedback="", feedbacks=None):
+        """Persist a delivery before receiving it; never start factory production."""
+        with self._lock:
+            p = self._refresh(self._load(identity, version))
+            shots = self._selected_shots(p, ids)
+            feedbacks = feedbacks or {}
+            if set(feedbacks) - set(ids):
+                raise ValueError("Une correction concerne un plan absent de la sélection.")
+            if not p["master_asset_id"] or p["approved"] != self._approval(p):
+                raise ValueError("Accepte le découpage actuel avant l’envoi à l’Usine.")
+            # Validate the whole selection before reserving or transmitting any card.
+            for shot in shots:
+                image = policy.selected_image(p, shot)
+                if not policy.start_matches(p, shot, image):
+                    raise ValueError(shot["title"] + " : prépare et retiens les images de ce plan avant l’envoi.")
+                if shot["mode"] == "endpoints" and not image.get("end_asset_id"):
+                    raise ValueError(shot["title"] + " : image d’arrivée manquante.")
+                if not policy.image_matches(p, shot, image):
+                    raise ValueError(shot["title"] + " : l’arrivée doit correspondre au plan actuel.")
+                if not policy.images_reviewed(p, shot, image):
+                    raise ValueError(shot["title"] + " : revois et valide les images avant l’envoi à l’Usine.")
+                if any(j["kind"] == "clip" and j["shot_id"] == shot["id"] and j["status"] in policy.ACTIVE
+                       for j in p["jobs"]):
+                    raise RecipeConflict(shot["title"] + " : un envoi précédent est encore en cours.")
+            deliveries = []
+            for shot in shots:
+                image = policy.selected_image(p, shot)
+                key = policy.clip_key(p, shot, image)
+                holder = p["media"][shot["id"]]
+                clip_id = policy.identity("clip")
+                entry = policy.factory_entry(p, shot, image, clip_id)
+                correction = feedbacks.get(shot["id"], feedback)
+                if correction:
+                    entry["config"]["intention"] += "\nCorrection pour cet essai : " + correction
+                # Also recognize previously launched clips from the same source version.
+                clip = next((c for c in reversed(holder["clips"])
+                    if c["context_key"] == key and not c.get("factory_missing")
+                    and (c.get("factory_id") or c.get("delivery_status") == "pending")
+                    and c["entry"]["config"]["intention"] == entry["config"]["intention"]), None)
+                if clip is None:
+                    clip = dict(id=clip_id, context_key=key, image_id=image["id"], feedback=correction,
+                        factory_id=None, asset_id=None, status="preparation", error=None,
+                        delivery_status="pending", entry=entry)
+                    holder["clips"].append(clip)
+                deliveries.append(clip)
+            pending = [clip for clip in deliveries if not clip.get("factory_id")]
+            added = 0
+            if pending:
+                self._save(p)
+                try:
+                    received = self.production.receive_clips([clip["entry"] for clip in pending])
+                    if len(received["ids"]) != len(pending):
+                        raise ValueError("L’Usine n’a pas confirmé toutes les fiches. Actualise puis réessaie l’envoi.")
+                except Exception as error:
+                    for clip in pending:
+                        clip.update(status="failed", error=str(error)[:3000])
+                    self._save(p)
+                    raise
+                for clip, factory_id in zip(pending, received["ids"]):
+                    clip.update(factory_id=factory_id, delivery_status="sent", status="preparation",
+                                error=None, sent_at=policy.now())
+                added = received["added"]
+                self._save(p)
+            return dict(project=self.public(self._refresh(p)), factory_ids=[c["factory_id"] for c in deliveries], added=added)
+
     def choose(self, identity, version, shot_id, kind, attempt_id):
         with self._lock:
             p = self._load(identity, version, editable=True)
@@ -182,6 +322,14 @@ class CookingRecipeService:
             item = next((a for a in holder[kind + "s"] if a["id"] == attempt_id), None)
             if not item or (kind == "clip" and not item.get("asset_id")):
                 raise ValueError("Choisis un essai terminé.")
+            if kind == "image" and not policy.image_matches(p, shot, item):
+                raise ValueError("Cet essai appartient à une ancienne version du plan. Il reste consultable dans les archives.")
+            if kind == "clip":
+                image = policy.selected_image(p, shot)
+                if not policy.image_matches(p, shot, image) or item["context_key"] != policy.clip_key(p, shot, image) or item.get("source_changed"):
+                    raise ValueError("Ce clip appartient à une ancienne version du plan. Il reste consultable dans les archives.")
+            if kind == "image" and holder.get("selected_image") != attempt_id:
+                holder.pop("image_review", None)
             holder["selected_" + kind] = attempt_id
             return self._save(p)
 
@@ -230,7 +378,13 @@ class CookingRecipeService:
             return
         else:
             holder = p["media"][job["shot_id"]]
-            attempt = dict(id=job["id"], context_key=job["context_key"], feedback=job["feedback"],
+            attempt = dict(id=job["id"], context_key=policy.image_key(job["snapshot"], job["shot"]), feedback=job["feedback"],
+                           start_context_key=policy.start_key(job["snapshot"], job["shot"]),
+                           image_policy_version=job.get("image_policy_version", "1.0.0"),
+                           image_engine=job["shot"].get("image_engine", "h3"),
+                           reused_start_from=job.get("reused_start_from"),
+                           recipe_name=job["snapshot"]["name"], shot_title=job["shot"]["title"],
+                           master_asset_id=job["snapshot"]["master_asset_id"],
                            start_asset_id=job["outputs"]["start"]["asset_id"],
                            end_asset_id=job["outputs"].get("end", {}).get("asset_id"),
                            outputs=deepcopy(job["outputs"]))
@@ -257,9 +411,12 @@ class CookingRecipeService:
             for clip in holder["clips"]:
                 item = items.get(clip.get("factory_id"))
                 if not item:
+                    if clip.get("factory_id"):
+                        clip["factory_missing"] = True
                     if clip.get("factory_id") and not clip.get("asset_id"):
                         clip.update(status="failed", error="Cette production n’est plus disponible dans l’usine. Tu peux lancer un nouvel essai.")
                     continue
+                clip["factory_missing"] = False
                 actual = item.get("launch_snapshot") or item.get("config", {})
                 expected = clip["entry"]["config"]
                 def source_signature(config):
@@ -273,6 +430,11 @@ class CookingRecipeService:
                 if item["steps"]["video"]["status"] == "succeeded" and output.get("asset_id"):
                     new = not clip.get("asset_id")
                     clip["asset_id"] = output["asset_id"]
+                    dlss = item["steps"].get("dlss", {})
+                    enhanced = dlss.get("output", {}).get("asset_id")
+                    if actual.get("dlss", {}).get("enabled") and dlss.get("status") == "succeeded" and enhanced:
+                        # Preview and export follow the completed factory enhancement.
+                        clip["asset_id"] = enhanced
                     if new and not holder.get("selected_clip"):
                         holder["selected_clip"] = clip["id"]
         if p != before:
@@ -291,14 +453,31 @@ class CookingRecipeService:
         value["approved_current"] = bool(p["approved"] and p["approved"] == self._approval(p))
         for shot in value["shots"]:
             image = policy.selected_image(p, shot)
-            shot["image_stale"] = bool(image and image["context_key"] != policy.image_key(p, shot))
-            holder = p["media"].get(shot["id"], {})
+            shot["image_stale"] = bool(image and not policy.image_matches(p, shot, image))
+            shot.setdefault("purpose", "auto")
+            shot.setdefault("scene", "")
+            shot.setdefault("mode_reason", "")
+            shot.setdefault("image_engine", "h3")
+            start = policy.available_start(p, shot)
+            shot["start_ready"] = start is not None
+            shot["start_asset_id"] = start["start_asset_id"] if start else None
+            current_job = next((j for j in reversed(p["jobs"]) if j["kind"] == "image" and j["shot_id"] == shot["id"]
+                and policy.image_key(j["snapshot"], j["shot"]) == policy.image_key(p, shot)), None)
+            shot["image_job"] = {k:current_job[k] for k in ("id", "status", "phase", "error")} if current_job else None
+            for attempt in value["media"].get(shot["id"], {}).get("images", []):
+                attempt["stale"] = not policy.image_matches(p, shot, attempt)
+                attempt["start_current"] = policy.start_matches(p, shot, attempt)
+                source = policy.image_job(p, attempt)
+                attempt.setdefault("image_engine", source["shot"].get("image_engine", "h3") if source else "h3")
+                attempt["label"] = " · ".join(filter(None, [attempt.get("recipe_name") or (source["snapshot"]["name"] if source else None),
+                    attempt.get("shot_title") or (source["shot"]["title"] if source else None)])) or "Ancien essai"
             key = policy.clip_key(p, shot, image) if image else None
             for clip in value["media"].get(shot["id"], {}).get("clips", []):
                 clip["stale"] = not image or shot["image_stale"] or clip["context_key"] != key or clip.get("source_changed", False)
-            shot["image_ready"] = bool(image and not shot["image_stale"])
-        value["jobs"] = [{k:deepcopy(v) for k,v in j.items() if k not in {"snapshot", "entry", "shot"}}
-                         for j in p["jobs"]]
+            shot["image_ready"] = policy.image_matches(p, shot, image)
+            shot["image_reviewed"] = policy.images_reviewed(p, shot, image)
+        value["jobs"] = [dict({k:deepcopy(v) for k,v in j.items() if k not in {"snapshot", "entry", "shot"}},
+            label=" · ".join(filter(None, [j["snapshot"]["name"], (j.get("shot") or {}).get("title")]))) for j in p["jobs"]]
         return value
 
     def export_selection(self, identity, version, ids):
@@ -314,7 +493,7 @@ class CookingRecipeService:
                 if not clip or not clip.get("asset_id"):
                     raise ValueError(shot["title"] + " : choisis un clip terminé.")
                 image = policy.selected_image(p, shot)
-                if not image or image["context_key"] != policy.image_key(p, shot) or clip["context_key"] != policy.clip_key(p, shot, image) or clip.get("source_changed"):
+                if not policy.image_matches(p, shot, image) or clip["context_key"] != policy.clip_key(p, shot, image) or clip.get("source_changed"):
                     raise ValueError(shot["title"] + " : le clip correspond à une ancienne version du plan.")
                 result.append(dict(index=p["shots"].index(shot)+1, title=shot["title"], asset_id=clip["asset_id"],
                                    duration=shot["duration"], shot_id=shot["id"], clip_id=clip["id"]))
@@ -340,6 +519,12 @@ class CookingRecipeService:
         try:
             if job["kind"] == "plan":
                 result = self.planner.propose(job["snapshot"], job["feedback"])
+                # Engine choice belongs to the user, not the breakdown model.
+                engines = {s["id"]:s.get("image_engine", "h3") for s in job["snapshot"]["shots"]}
+                for shot in result["shots"]:
+                    shot["image_engine"] = engines.get(shot["id"], "h3")
+                    if shot["image_engine"] == "krea2":
+                        shot["mode"] = "animate"
                 with self._lock:
                     p = self._load(identity)
                     self._history(p)

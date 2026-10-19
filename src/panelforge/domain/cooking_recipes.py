@@ -13,6 +13,8 @@ from .video_factory import configuration
 MODEL = "local::unsloth/gemma-4-31B-it-qat-GGUF"
 PLAN_MODEL = "local::unsloth/Qwen3.8-27B-GGUF"
 ACTIVE = {"queued", "working", "waiting"}
+IMAGE_POLICY_VERSION = "2.0.0"
+CLIP_SHOT_FIELDS = ("id", "title", "action", "framing", "opening", "ending", "duration", "mode")
 
 
 def now():
@@ -55,9 +57,15 @@ class Shot(Contract):
     ending: str = Field(default="", max_length=3000)
     duration: float = Field(default=6, ge=5, le=15, allow_inf_nan=False)
     mode: Literal["animate", "endpoints"] = "animate"
+    purpose: Literal["auto", "preparation", "presentation"] = "auto"
+    scene: str = Field(default="", max_length=3000)
+    mode_reason: str = Field(default="", max_length=1000)
+    image_engine: Literal["h3", "krea2"] = "h3"
 
     @model_validator(mode="after")
     def require_ending(self):
+        if self.image_engine == "krea2":
+            self.mode = "animate"
         if self.mode == "endpoints" and not self.ending:
             raise ValueError("Décris l’état d’arrivée pour un plan à deux images.")
         return self
@@ -74,11 +82,33 @@ class Breakdown(Contract):
         return self
 
 
-def image_context(p, shot):
+def breakdown_context(p):
+    """Ordered culinary context for the KREA2 prompter, without render settings."""
+    return [dict(id=s["id"], title=s["title"], action=s["action"], purpose=s.get("purpose", "auto"))
+            for s in p["shots"]]
+
+
+def start_context(p, shot):
     s = p["settings"]
-    return dict(master=p["master_asset_id"], world=s["world"], cook=s["cook"],
-                ratio=s["aspect_ratio"], opening=shot["opening"], ending=shot["ending"],
-                framing=shot["framing"], mode=shot["mode"], model=s["edit_model_id"])
+    context = dict(master=p["master_asset_id"], dish=s.get("intention") or p["name"],
+                world=s["world"], cook=s["cook"], camera=s["camera"], ratio=s["aspect_ratio"],
+                title=shot["title"], action=shot["action"], opening=shot["opening"],
+                scene=shot.get("scene", ""), purpose=shot.get("purpose", "auto"),
+                framing=shot["framing"], model=s["edit_model_id"])
+    # Keep the historical H3 fingerprint byte-for-byte compatible.
+    if shot.get("image_engine", "h3") == "krea2":
+        context.update(image_engine="krea2", model=s["model_id"],
+                       style_preset_id=s.get("style_preset_id"), breakdown=breakdown_context(p))
+    return context
+
+
+def start_key(p, shot):
+    # Arrival and delivery mode do not change an otherwise identical opening.
+    return digest(start_context(p, shot))
+
+
+def image_context(p, shot):
+    return dict(start=start_context(p, shot), mode=shot["mode"], ending=shot["ending"])
 
 
 def image_key(p, shot):
@@ -90,9 +120,57 @@ def selected_image(p, shot):
     return next((a for a in holder.get("images", []) if a["id"] == holder.get("selected_image")), None)
 
 
+def image_job(p, image):
+    return next((j for j in p["jobs"] if j["id"] == image["id"] and j["kind"] == "image"), None)
+
+
+def start_matches(p, shot, image):
+    if not image or not image.get("start_asset_id"):
+        return False
+    if image.get("start_context_key"):
+        return image["start_context_key"] == start_key(p, shot)
+    # Legacy images retain their provenance. No runtime migration or rendering required.
+    job = image_job(p, image)
+    return bool(job and start_key(job["snapshot"], job["shot"]) == start_key(p, shot))
+
+
+def image_matches(p, shot, image):
+    if not start_matches(p, shot, image):
+        return False
+    if shot["mode"] == "animate":
+        return True
+    if not image.get("end_asset_id"):
+        return False
+    if image.get("start_context_key"):
+        return image["context_key"] == image_key(p, shot)
+    job = image_job(p, image)
+    return bool(job and image_key(job["snapshot"], job["shot"]) == image_key(p, shot))
+
+
+def available_start(p, shot):
+    image = selected_image(p, shot)
+    if start_matches(p, shot, image):
+        return image
+    # Keep a completed departure usable when its arrival failed or was abandoned.
+    for job in reversed(p["jobs"]):
+        if job["kind"] == "image" and job["shot_id"] == shot["id"] and job.get("outputs", {}).get("start"):
+            candidate = dict(id=job["id"], start_asset_id=job["outputs"]["start"]["asset_id"],
+                             outputs=job["outputs"], start_context_key=job.get("start_context_key"))
+            if start_matches(p, shot, candidate):
+                return candidate
+    return None
+
+
+def images_reviewed(p, shot, image):
+    review = p["media"].get(shot["id"], {}).get("image_review") or {}
+    return bool(image_matches(p, shot, image) and review.get("image_id") == image["id"]
+                and review.get("context_key") == image_key(p, shot))
+
+
 def clip_key(p, shot, image):
     s = p["settings"]
-    shot = {k:shot[k] for k in Shot.model_fields}
+    # Keep historical delivery fingerprints stable; image_matches checks the richer scene.
+    shot = {k:shot[k] for k in CLIP_SHOT_FIELDS}
     return digest(dict(shot=shot, image=image["id"], start=image["start_asset_id"], end=image.get("end_asset_id"),
                        world=s["world"], cook=s["cook"], camera=s["camera"], audio=s["audio"],
                        ratio=s["aspect_ratio"], plan=s["plan_model_id"], writer=s["writer_model_id"]))
@@ -119,10 +197,14 @@ def factory_entry(p, shot, image, attempt_id):
         "Caméra : " + s["camera"], "Son : " + s["audio"],
         "Aucun dialogue, voix off, sous-titre, musique ni titre incrusté. L’image du plat définit son identité et ses ingrédients, pas un état cuit à copier dans une étape crue.",
     ])
+    if shot.get("scene") or shot.get("purpose", "auto") != "auto":
+        config["intention"] += "\nPlat : " + (s.get("intention") or p["name"])
+        config["intention"] += "\nScène : " + shot.get("scene", "")
+        config["intention"] += "\nRôle du plan : " + shot.get("purpose", "auto")
     config["render"]["settings"].update(duration_seconds=shot["duration"], aspect_ratio=s["aspect_ratio"])
     config["render"]["music_enabled"] = False
     config["render"]["seed_locked"] = False
-    config["dlss"]["enabled"] = False
+    config["dlss"]["enabled"] = True
     config["social"]["enabled"] = False
     return dict(name=(p["name"] + " · " + shot["title"])[:160], config=config,
                 source=dict(kind="cooking_recipe", id=p["id"], shot_id=shot["id"],

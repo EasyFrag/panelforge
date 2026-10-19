@@ -2,6 +2,7 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import Field
+from typing import Annotated, Literal
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from panelforge.domain.cooking_recipes import Contract, Settings, Shot
@@ -33,6 +34,8 @@ class Generate(Version):
     command: str = Field(min_length=8, max_length=100, pattern=r"^[a-zA-Z0-9_-]+$")
     ids: list[str] = Field(default_factory=list, max_length=30)
     feedback: str = Field(default="", max_length=4000)
+    image_part: Literal["all", "end"] = "all"
+    image_engine: Literal["h3", "krea2"] | None = None
 
 
 class Choose(Version):
@@ -43,6 +46,15 @@ class Choose(Version):
 
 class Export(Version):
     ids: list[str] = Field(min_length=1, max_length=30)
+
+
+class Send(Export):
+    feedback: str = Field(default="", max_length=4000)
+    feedbacks: dict[str, Annotated[str, Field(max_length=4000)]] = Field(default_factory=dict, max_length=30)
+
+
+class ImageReview(Export):
+    approved: bool = Field(default=True, strict=True)
 
 
 def cooking_recipes_router(service):
@@ -106,7 +118,18 @@ def cooking_recipes_router(service):
 
     @router.post("/projects/{identity}/generate/{kind}", status_code=202)
     def generate(identity:str, kind:str, body:Generate):
-        return invoke(lambda:service.enqueue(identity, body.version, body.command, kind, body.ids, body.feedback), True)
+        if kind == "clip":
+            raise HTTPException(409, "Utilise « Envoyer à l’Usine » puis lance la production depuis l’Usine. Actualise la page.")
+        return invoke(lambda:service.enqueue(identity, body.version, body.command, kind, body.ids, body.feedback,
+            body.image_part, body.image_engine), True)
+
+    @router.post("/projects/{identity}/review-images")
+    def review_images(identity:str, body:ImageReview):
+        return invoke(lambda:service.review_images(identity, body.version, body.ids, body.approved), True)
+
+    @router.post("/projects/{identity}/send")
+    def send(identity:str, body:Send):
+        return invoke(lambda:service.send(identity, body.version, body.ids, body.feedback, body.feedbacks))
 
     @router.post("/projects/{identity}/choose")
     def choose(identity:str, body:Choose):

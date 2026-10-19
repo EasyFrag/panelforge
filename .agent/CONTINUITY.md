@@ -1,18 +1,160 @@
 # CONTINUITY
 
+## Implémentation 2026-10-15 — Recettes : choix H3 ou KREA2 + Flux Klein
+
+### Goal
+- L’utilisateur autorise l’implémentation des deux moteurs d’images. L’alignement précédent est clos : reprendre le preset Univers, prompteur avec vision de l’image et découpage, nouvelles images de départ KREA2 avec finition Flux Klein. La scène finale est explicitement différée ; ne rien ajouter à ce sujet. Aucun rendu, test ou redémarrage demandé.
+
+### Current state
+- Neuf fichiers appliqués dans le checkout actif D:/Code/panelforge-krea2-flux : domaine Recettes, service, prompts, adaptateur production, route HTTP, recipes.js, index.html, tests et guide. Découpage propose Valider et générer avec H3 / avec KREA2. H3 garde les modes une/deux images ; KREA2 convertit les plans du lot en animate. Choix moteur, validation et tâches sont persistés ensemble avec rejeu de commande sans doublon. Preset absent ou supprimé bloque le lot avant mutation ; absence guidée vers Univers dans l’interface.
+- image_engine est mémorisé par plan (anciens projets H3 par défaut), modifiable dans le découpage et affiché sur cartes/essais. Les régénérations individuelles ou en lot depuis Images reprennent le moteur choisi ; une révision du découpage conserve les moteurs des IDs existants. KREA2 reste à une seule image, l’état final textuel demeure l’intention de la vidéo. Les boutons globaux appliquent leur moteur à tous les plans.
+- Adaptateur KREA2 réutilisé : projet enfant à clé stable, assistance V6, modèle settings.model_id, référence Univers envoyée au prompteur avec preset et découpage, contexte de scène complet et correction. Création text-to-image sans source image à éditer. Même pipeline qu’Univers : krea2-flux-klein@1.0.0, 2,1 MP, sampling finish_4 (8 + 4), checkpoint/LoRA du preset. Envoi d’essai préparé récupérable et checkpoint avant mise en file ; pas de nouvelle file GPU ni dépendance. Limite chat 12 000 caractères : seuls les résumés de contexte sont raccourcis si nécessaire ; un contrat cible encore trop long échoue explicitement avant rendu.
+- Empreintes H3 historiques inchangées. KREA2 distingue moteur, preset, modèle de prompt et contexte ordonné titres/gestes/rôles du découpage. Changer ce contexte peut rendre ses images obsolètes ; durée et modèle H3 seuls ne le font pas. Historiques conservés et sélection d’un ancien essai possible après retour à son contexte compatible. Revue visuelle toujours obligatoire avant l’envoi en préparation ; DLSS par défaut préservé. Aucun changement à la finale, aucun réemploi automatique d’Univers comme dernière frame.
+- Vérification : six fichiers Python compilés sans import/exécution, JS compilé avec V8 sans invocation, 2256 IDs HTML uniques et 51 sélecteurs littéraux résolus, diff isolé relu, empreintes avant/après copie contrôlées. Onze tests ajoutés (63 dans test_cooking_recipes.py), non exécutés selon AGENTS.md. Couverture préparée : conversion/validation/rejeu, presets absents/supprimés, reprise/régénération, H3 deux images, historique et changement moteur, révision, vision et contexte, workflow/récupération d’essai, échec prompt sans rendu, limite de contexte, HTTP, revue puis envoi avec DLSS. Rendu navigateur et gains de vitesse/qualité non qualifiés.
+- Aucun appel LLM, génération d’image/vidéo, requête de génération, modification runtime, redémarrage, commit/push. Modifications préexistantes conservées, notamment le classement Construction/Recettes. Preuves et sauvegardes : D:/Code/panelforge/.agent/diagnostics/recipes-krea-dual-20261015/ (before, staging, review.diff, static-checks.json, applied.json). Cache recipes.js : 20261015.krea-dual1.
+
+### Next steps
+- Charger ce patch au prochain redémarrage habituel du backend choisi par l’utilisateur, puis Ctrl+F5. Les services en cours n’ont pas été interrompus.
+- Tests à lancer par l’utilisateur depuis le checkout actif : python -m unittest discover -s tests -p "test_cooking_recipes*.py", puis la suite habituelle selon besoin. Les générations de comparaison H3/KREA2 sont à lancer par l’utilisateur ; aucun gain de vitesse n’est affirmé à ce stade.
+- Reprendre séparément la discussion sur la dernière scène après ce patch, uniquement à la demande de l’utilisateur.
+
+## Implémentation 2026-10-15 — Dossiers Construction et Recettes
+
+### Goal
+- Accord utilisateur reçu : implémenter les dossiers Construction et Recettes avec sous-dossiers par date. Ne pas reclasser les vidéos déjà générées ; l'utilisateur s'en charge. Cet accord remplace l'attente de l'entrée d'alignement sur le classement ci-dessous.
+
+### Current state
+- Quatre fichiers appliqués dans le checkout actif D:/Code/panelforge-krea2-flux : domain/video_factory_results.py, infrastructure/video_factory_outputs.py, tests/test_video_factory_results.py et docs/video-factory.md. Les nouvelles livraisons source.kind=image_transition vont dans Construction ; source.kind=cooking_recipe dans Recettes. Origine prioritaire sur le preset et conservée après personnalisation. Petits hommes, Histoire, Levres et Autres gardent leur fonctionnement.
+- Organisation existante réutilisée : famille/YYYY-MM-DD, date locale de fin de la vidéo livrée ; DLSS et texte Instagram dans le dossier du jour, vidéo sans DLSS dans base video. Création automatique au premier export. Les originaux ComfyUI dlss-*.mp4 restent à leur emplacement.
+- Compatibilité sans migration : une livraison déjà affectée à un dossier pour le même asset conserve sa famille, sa date et sa clé. Les nouveaux exports enregistrent explicitement delivery.family ; les anciens journaux sans ce champ réutilisent leur ancienne règle de classement. Pas de nouvel export ni d'invalidation d'archivage provoqué par l'ajout des familles. Un nouvel asset vidéo/DLSS utilise les nouvelles catégories sans déplacer le fichier précédent. Aucun journal runtime ni média existant modifié pendant l'implémentation.
+- Six régressions ajoutées : origines prioritaires après personnalisation ; dossiers/date locale/base/DLSS ; texte Instagram tardif sur ancien export et sur nouvelle famille ; nouveau DLSS après ancienne base ; anciens exports sans republication et toujours archivables. Tests non exécutés, conformément à AGENTS.md. Trois fichiers Python compilés sans import ni exécution, diff isolé relu et contrôlé, empreintes vérifiées avant/après copie. Aucun appel LLM, génération, requête HTTP, redémarrage ou commit/push.
+- Sauvegardes, staging, review.diff, manifest.json et reçu applied.json : D:/Code/panelforge/.agent/diagnostics/factory-output-families-20261015/. Changements préexistants conservés.
+
+### Next steps
+- Charger le changement au prochain redémarrage habituel de PanelForge choisi par l'utilisateur ; aucun service n'a été interrompu. Les nouveaux dossiers apparaîtront au premier export concerné après chargement du code.
+- Tests à lancer par l'utilisateur depuis D:/Code/panelforge-krea2-flux : python -m unittest discover -s tests -p "test_video_factory_results.py" ; les régressions d'archives sont dans test_video_factory_archives.py. Reclasser éventuellement les anciens fichiers manuellement selon le choix de l'utilisateur ; aucune migration automatique prévue.
+
+## Alignement et correctif 2026-10-15 — KREA2 alternatif, finale Univers, DLSS et derniers runs
+
+### Goal
+- Demande : s’aligner sur deux pistes Recettes (génération directe KREA2 et image Univers comme dernière frame), activer le DLSS par défaut immédiatement, puis petit audit des derniers runs. Seul le correctif DLSS est demandé sans attendre l’alignement ; aucun lancement ni redémarrage autorisé.
+
+### Current state
+- Alignement KREA2 confirmé par réponses utilisateur : deux boutons au Découpage, Valider et générer avec H3 / avec KREA2 ; reprendre le preset Univers (le choisir s’il manque) ; le prompteur voit l’image Univers + le découpage, puis crée le prompt d’une nouvelle image de départ ; passer automatiquement les plans KREA2 à une image animate, sans départ/arrivée. Question complémentaire résolue : utiliser KREA2 + finition Flux Klein, comme Univers, pas KREA2 seul. Ce nouveau mode n’a pas encore été implémenté dans ce tour d’alignement.
+- Finale : l’utilisateur confirme image Univers comme image d’arrivée seule + intention, sans générer un départ. Il demande de décider après l’audit et de conserver le fonctionnement actuel pour l’instant. Faisabilité confirmée dans le code : H3/Usine acceptent L2VA (dernière frame seule). Recettes n’expose pas encore ce mode. Proposition : option remplaçant la présentation/touche finale équivalente, incluse dans la durée totale, jamais une scène ajoutée automatiquement en doublon. Pas de modification de ce parcours à ce stade.
+- Audit en lecture seule : trois derniers projets, Ice Coffee à la Coréenne (5 images, lot 196,6 s), Spaghetti Bolognese (6, 224,4 s), Caipirinha (6, 220,2 s). Les 17 sorties sont succeeded, prompts/références conformes aux enregistrements ; 17 fiches Usine en préparation, vidéo pending. Aucun clip de ces trois recettes à qualifier pour le mouvement ou le son.
+- Point essentiel : dernières images achevées au plus tard à 17:11:35 UTC ; correctif scène 2.0.0 appliqué à 17:13:07 UTC. Ces runs utilisent les anciennes instructions et ne testent pas le correctif. Verre/glaçons/liquides réalistes déjà dans les images Univers, gestes anticipés, identité alimentaire parfois perdue. Iced coffee : paille déjà insérée avant l’insertion prévue, finale presque identique à Univers. Spaghetti : gousse devenue bulbe, viande bloc tricoté, sauce ressemblant déjà aux pâtes avant dressage, dressage avec deux gestes. Caipirinha : citron cylindrique peu lisible, sucre/liquide/glace réalistes, cachaça déjà versée malgré prompt avant geste, garniture déjà présente avant le dernier plan.
+- Performance : médianes H3 par lot ~9–10 s de prompt +20–23 s de rendu ; premier rendu 45–54 s. Univers KREA2 + Flux Klein ~45–47 s tout compris. Scènes différentes, pas de benchmark comparatif ; gain KREA2 non démontré. Les départs actuels H3 sont déjà des compositions depuis référence (source_asset_id absent), l’édition d’une source est réservée aux arrivées.
+- DLSS implémenté dans le checkout actif D:/Code/panelforge-krea2-flux : factory_entry active dlss.enabled pour les nouvelles fiches. _refresh utilise la sortie DLSS terminée et activée pour aperçu/export ; conserve la vidéo brute pendant l’attente ou après échec. Les anciennes fiches restent inchangées, déduplication/envoi en préparation sans lancement préservés. Deux régressions ajoutées, assertions d’envoi adaptées (52 tests préparés au total), documentation mise à jour.
+- Vérification : trois fichiers Python compilés sans import, diff isolé relu, empreintes des quatre fichiers contrôlées avant/après copie. Tests non exécutés selon AGENTS.md. Aucun appel LLM, rendu, requête HTTP de génération, modification runtime, redémarrage ou commit/push. Preuves, planches de lecture, métriques, décisions, sauvegardes, staging, dlss-review.diff et reçu : D:/Code/panelforge/.agent/diagnostics/recipes-krea-alignment-20261015/ ; synthèse structurée findings.json.
+
+### Next steps
+- Présenter l’audit et l’alignement confirmé. Le mode KREA2 est défini mais attend une demande d’implémentation ; la finale Univers reste une proposition non activée. Ne pas interpréter l’activation immédiate du DLSS comme l’autorisation d’implémenter ces deux pistes.
+- Charger le correctif DLSS au prochain redémarrage habituel choisi par l’utilisateur ; tester ensuite les nouvelles fiches et la récupération de la sortie DLSS. Les fiches déjà en préparation conservent leur réglage actuel.
+- Tests à lancer par l’utilisateur depuis le checkout actif : python -m unittest discover -s tests -p "test_cooking_recipes*.py". Qualifier les futures images de scène 2.0.0 et une comparaison KREA2/H3 uniquement sur génération explicitement demandée par l’utilisateur.
+
+## Implémentation 2026-10-15 — Recettes : qualité des scènes, revue et arrivée seule
+
+### Goal
+- L’utilisateur a autorisé l’implémentation des corrections de l’audit bœuf/latte (« Okay, je te laisse implémenter cette version »). Cette autorisation remplace l’attente d’alignement de l’audit ci-dessous. Conserver les essais et les travaux en cours.
+
+### Current state
+- Dix fichiers appliqués dans D:/Code/panelforge-krea2-flux. Contrat de scène 2.0.0 : plat/intention, rôle préparation/présentation, ingrédients et état, récipient/outils, geste, cadrage et deux états transmis au prompteur. Identités alimentaires explicites, départ avant le geste avec ses outils, matières textiles y compris sauce/vapeur, présentation complète du plat. L’arrivée conserve la composition de son départ ; la référence du plat reste secondaire. Les moteurs et files existants sont réutilisés sans nouveau service ni dépendance.
+- Découpage : animation une image par défaut, exceptions à deux images justifiées ; une proposition endpoints sans justification revient à animate. Les choix manuels restent possibles. Champs scène/rôle/justification éditables ; bouton Passer tous les plans à une image, appliqué après enregistrement. Aucun changement automatique des projets existants ni régénération.
+- Le départ possède sa propre empreinte : changer seulement l’arrivée, le mode ou la durée le conserve. Les anciennes images sont reconnues depuis l’instantané de leur tâche, sans migration. Corriger/Générer l’arrivée seule réutilise le départ retenu compatible, ou le départ d’une tâche incomplète s’il n’y a pas de départ retenu compatible ; un seul nouveau rendu est demandé. Rejeu de commande et reprises après échec/redémarrage préservent ce départ. Passer une paire abandonnée à animate permet de retenir son départ sans rendu.
+- Revue visuelle explicite par plan/lot, distincte de la réussite technique. POST review-images enregistre essai + contexte ; nouvel essai retenu ou contexte changé demandent une nouvelle revue. Un résultat arrivé pendant la revue provoque un conflit de version. Envoyer à l’Usine exige des images complètes, compatibles et revues, puis crée seulement les fiches de préparation comme avant. Aucun Plan/Prompt/vidéo lancé par l’envoi ; déduplication historique préservée.
+- Interface : essais actuels et archives séparés, noms d’origine conservés, aperçu vidéo courant sans ancien clip d’un autre plat, anciennes images/clips consultables mais non retenables si périmés. En mode animate, l’ancienne arrivée est conservée dans l’historique mais n’est ni affichée dans l’aperçu principal ni envoyée. Aperçus clic et survol ×2 préservés. Cache recipes.js/css : 20261015.scene2.
+- 16 régressions ajoutées (50 tests préparés au total), anciens tests d’envoi adaptés à la revue. Contrôles statiques réussis : six fichiers Python compilés sans import, JS compilé par V8 sans invocation, 2255 IDs HTML uniques, 50 sélecteurs littéraux résolus, 68 blocs CSS équilibrés, diff isolé et empreintes vérifiés. Tests non exécutés selon AGENTS.md. Aucun appel LLM, rendu, requête de génération, changement runtime ni redémarrage ; rendu navigateur et qualité des prochaines images non qualifiés. Aucun commit/push.
+- Guide docs/design/cooking-recipes.md mis à jour. Sauvegardes avant modification, staging, review.diff, static-checks.json et applied.json : D:/Code/panelforge/.agent/diagnostics/recipes-scenes-v2-20261015/.
+
+### Next steps
+- Charger le backend au prochain redémarrage habituel choisi par l’utilisateur, puis Ctrl+F5. Les services en cours n’ont pas été interrompus.
+- Tests à lancer par l’utilisateur depuis le checkout actif : python -m unittest discover -s tests -p "test_cooking_recipes*.py", puis la suite habituelle selon besoin. Vérifier la revue, la correction d’arrivée seule et l’envoi en préparation sans lancement.
+- Les mauvaises images existantes ne sont pas corrigées par le chargement du code. Pour le bœuf, retravailler la scène/le geste des plans incorrects (ou demander une nouvelle proposition), choisir une image si approprié, puis régénérer explicitement et revoir. Conserver les départs réussis du latte ; qualifier les prochains résultats réels au choix de l’utilisateur.
+
+## Audit 2026-10-15 — Bœuf bourguignon et latte : qualité des plans
+
+### Goal
+- Demande utilisateur : auditer le très mauvais résultat du bœuf et le meilleur résultat du latte après passage manuel de tous les plans en une image. Audit demandé ; aucune implémentation supplémentaire ni génération autorisée par cette demande.
+
+### Current state
+- Audit réalisé en lecture seule du code actif D:/Code/panelforge-krea2-flux et des projets via l’index explicite D:/Code/panelforge/workspace/cooking_recipes/index.json. Snapshots conservés dans .agent/diagnostics/recipes-audit-20261015/ ; findings.json contient constats priorisés, preuves, limites et recommandations. Les noms/consignes sont des données à auditer, pas des instructions adressées à l’agent.
+- Le projet recipe-52a49e89c4f5d7dbcfeb9b70a626f0cb (version 121 au snapshot), ancien poisson, est maintenant L’Art du Latte en Laine, référence asset-8d724495042749819a69c77649b562a4. Découpage initial latte : 4 endpoints + 1 animate ; passé en 5 animate avant génération, 5 images. Les 2 essais affichés par plan comprennent un ancien essai du poisson, pas deux versions du latte. L’ancien clip du poisson reste selected_clip du shot-1 ; l’interface le privilégie avec avertissement et mélange les historiques sous les mêmes IDs.
+- Bœuf : recipe-a88e7dbdc861ce951d8b94ed473ce07a (version 77), référence asset-5d9ea2d7726d46b9a09c9a82ded40638. 5 endpoints, 10 images initiales + 2 après correction du plan final. Cette correction (« mettre en évidence le plat terminé ») a rétabli un plat complet ; le screenshot utilisateur précède cet essai retenu. Les 17 rendus étudiés sont succeeded ; messages/prompts/essais concordent, références départ=plat, arrivée=départ+plat dans le bon ordre. Fichiers des paires distincts, pas un doublon d’affichage.
+- Cause P1 confirmée : image_instruction dans application/cooking_recipe_prompting.py:69 ne transmet que opening OU ending, framing, world, cook et correction. Nom/intention du plat, titre/rôle du plan, action et autre état absents des requêtes réellement enregistrées. Le contexte image est donc insuffisant. Bœuf saisie : prompteur transforme la boule brune en mushroom et ajoute les ingrédients/sauce du plat final. Présentation originale : raw ingredient / yarn ball hors du plat. Latte : récipient verseur absent des plans café/cœur, car leur opening ne le décrit pas et action est perdue.
+- Cause P1 confirmée sur arrivée légumes : « Les légumes reposent sur le lit de laine brune » devient explicitement brown crochet mat dans le prompt MiniMax, avec bol déplacé en périphérie. L’image suit cette demande ; ce défaut ne vient pas d’une inversion de références. Deux états peu distincts pour retourner une boule ou presser à la fourchette. Couvercle ouvert/fermé est, lui, une transition lisible.
+- Choix de mode trop vague : planner utilise endpoints dès qu’un résultat final compte ; aucune justification/validation du changement visible. Une image est un meilleur défaut proposé, sans prétendre démontrer sa supériorité par un test comparatif : aucun latte à deux images n’a été rendu. Changer de mode seul ne corrige pas les mauvais départs du bœuf.
+- Matière/identité : les textes confondent aliments en laine et manipulation de laine (boule/pelote, aiguille pour latte). Le plat maître bœuf comporte déjà une sauce d’aspect liquide brillant ; nappage et vapeur restent réalistes malgré world. Les étapes utilisent MiniMax/H3 Still avec Gemma, pas le preset KREA2 directement ; ce dernier sert aux plats maîtres.
+- Contrôle manquant : _complete_image retient automatiquement un rendu terminé ; image_ready vérifie fichiers/version, pas identité, temporalité ou cohérence de paire. Revue humaine disponible mais distinction généré/validé visuellement peu explicite. Tests actuels simulés, sans qualification des images. Une correction d’arrivée régénère actuellement aussi le départ ; un changement mode invalide l’image entière via image_context.
+- Usine vérifiée dans son journal : 5 fiches latte, 4 bœuf (plans 2–5) en préparation, Plan/Prompt/vidéo pending ; références conformes. Aucun clip de ces recettes à auditer, donc aucun jugement sur mouvement/ASMR. Pas d’indice de lancement involontaire par Envoyer à l’Usine.
+- Aucun code applicatif, projet/runtime, service ou Git modifié. Aucun appel LLM, génération, test, import de service ni requête HTTP. Seuls diagnostics locaux et continuités écrits ; images existantes inspectées directement.
+
+### Next steps
+- Présenter l’audit et attendre la prochaine demande avant les correctifs fonctionnels. Ordre proposé : contrat de scène complet transmis au prompteur et fingerprint cohérent ; animation une image par défaut, exceptions explicites ; identité des aliments/états et présentation finale protégées ; revue visuelle et séparation des archives ; correction d’une seule borne. Conserver tous les essais existants.
+- Toute génération de qualification reste une action à choisir/lancer par l’utilisateur ; ne pas régénérer les recettes, lancer les fiches Usine ni redémarrer le backend à partir de cet audit seul.
+
+## Implémentation 2026-10-15 — Recettes : envoyer à l’Usine sans lancer
+
+### Goal
+- Réponses utilisateur confirmées : créer uniquement des fiches en préparation, respecter le mode une/deux images, remplacer Animer par Envoyer à l’Usine en lot et par plan. Ces choix remplacent les questions en attente de l’entrée d’alignement ci-dessous.
+
+### Current state
+- Implémentation appliquée dans D:/Code/panelforge-krea2-flux. Nouveau POST /api/recipes/projects/{identity}/send : validation de toute la sélection, réservation persistée puis factory.receive uniquement. Aucun lancement Plan, Prompt ou vidéo ; aucun job de génération créé, ni changement de pause. Chaque fiche reçoit les images retenues et les consignes du plan. Un plan prêt peut être envoyé pendant les images d’autres plans.
+- Déduplication par images, paramètres et correction ; les corrections par carte sont transmises aussi en lot. Une réponse interrompue réutilise exactement la réservation enregistrée ; un changement de version/correction crée une nouvelle fiche. Les modifications faites dans l’Usine ne sont pas écrasées. Une fiche supprimée peut être remplacée par un nouvel envoi explicite ; historique conservé.
+- Interface Clips : Envoyer à l’Usine en lot et par plan, images retenues avant le résultat vidéo, état Envoyé à l’Usine et accès direct à la fiche. Sélection incomplète/périmée bloquée avec explication. Images et Clips affichent Animation · 1 image ou Départ + arrivée · 2 images ; le nappage conserve son mode animate et son image unique. Les aperçus clic/survol ×2 précédents sont préservés. Cache recipes.js/css : 20261015.send1.
+- Les anciens jobs clip déjà enregistrés gardent leur traitement et les productions existantes leur suivi. L’ancien endpoint generate/clip refuse les nouveaux lancements (409, demande d’actualiser), pour éviter qu’un onglet ancien déclenche encore la production complète. Le nouvel envoi ne retombe jamais sur cet endpoint.
+- Dix tests de régression ajoutés (34 au total dans test_cooking_recipes.py), non exécutés selon AGENTS.md : modes/références, absence de lancement, déduplication, sélection incomplète/périmée, autre image en cours, reprise après réponse perdue, corrections, productions historiques/supprimées et HTTP. Guide docs/design/cooking-recipes.md mis à jour.
+- Contrôles statiques réussis : quatre fichiers Python compilés sans import/exécution, recipes.js compilé par V8 sans invocation ; 2253 IDs HTML uniques, 48 sélecteurs littéraux résolus, 64 blocs CSS équilibrés ; chemin d’envoi relu sans appel de lancement, diff isolé et empreintes vérifiés. Aucun test, LLM, rendu, appel de génération, modification des données runtime ou redémarrage. Rendu visuel non vérifié dans un navigateur. Aucun commit/push.
+- Huit fichiers applicatifs/tests/guide modifiés ; changements préexistants conservés. Sauvegardes, staging, review.diff, static-checks.json et reçu d’application dans D:/Code/panelforge/.agent/diagnostics/recipes-send-20261015/.
+
+### Next steps
+- Charger les changements Python au prochain redémarrage habituel du backend, choisi par l’utilisateur, puis Ctrl+F5. L’agent n’a pas interrompu les travaux en cours.
+- Tests à exécuter par l’utilisateur depuis le checkout actif : python -m unittest discover -s tests -p "test_cooking_recipes*.py", puis la suite habituelle selon besoin. Vérifier dans l’interface l’envoi d’un plan à une image et d’un plan à deux images, l’état en préparation dans l’Usine et le réenvoi sans doublon.
+
+## Alignement 2026-10-15 — Image unique et envoi de Recettes à l'Usine
+
+### Goal
+- Expliquer pourquoi Nappage de sauce n'a qu'une image, puis s'aligner sur le sens d'Envoyer à l'Usine depuis Clips. Discussion demandée explicitement ; pas de nouveau changement applicatif à ce stade.
+
+### Current state
+- Lecture du projet via l'index explicite D:/Code/panelforge/workspace/cooking_recipes/index.json. Recette recipe-52a49e89c4f5d7dbcfeb9b70a626f0cb, Le Poisson de Laine aux Courgettes : shot-4 Nappage de sauce est en mode animate, essai complet avec départ seul ; les cinq autres plans sont endpoints. Une arrivée est décrite textuellement pour le nappage, mais aucune image d'arrivée n'est attendue dans ce mode. Le planner choisit animate pour un geste animable depuis son départ et endpoints pour une arrivée visuelle précise ; choix modifiable au Découpage.
+- Code actuel confirmé : CookingRecipeProduction.submit_clip appelle factory.receive puis factory.launch si la fiche est en préparation. Le bouton Animer transmet donc à l'Usine et lance la chaîne de production. À l'inverse, Transitions.send appelle seulement receive, conserve les identités de livraison et déduplique les envois par version.
+- Proposition à valider : Envoyer à l'Usine crée une fiche par plan sélectionné prêt, avec ses versions d'images retenues (first_frame/last_frame), geste, cadrage, durée, format et consignes laine/mains/ASMR. Fiches en préparation ; lancement depuis l'Usine. Recettes affiche Envoyé et un lien, puis suit les clips produits. Réenvoyer la même version ne doit pas dupliquer les fiches. Un plan à deux images incomplet reste bloqué avec motif explicite.
+- Trois questions posées via request_user_input_async, réponses en attente : dépôt seul ou préparation Plan+Prompt ou lancement complet ; respecter modes une/deux images ou exiger deux images partout ; remplacer Animer ou conserver les deux actions. Options recommandées : dépôt seul, respecter le mode du plan, remplacer Animer.
+- Aucune donnée runtime modifiée, aucun appel HTTP de génération, test, LLM, rendu ni redémarrage. Seules les continuités sont mises à jour.
+
+### Next steps
+- Intégrer les réponses de l'utilisateur et confirmer précisément le comportement d'envoi avant toute implémentation. Ne pas interpréter les recommandations ci-dessus comme des choix déjà validés.
+
+## Correctif UX 2026-10-15 — Aperçus des images de Recettes
+
+### Goal
+- Demande utilisateur : corriger l'aperçu au clic illustré par la capture (grande fenêtre blanche, image à gauche) et ajouter une infobulle d'image à ×2 au survol. Implémentation directe autorisée.
+
+### Current state
+- Correctif dans D:/Code/panelforge-krea2-flux, trois fichiers statiques : recipes.js, recipes.css, index.html. L'ancien width:auto de la lightbox remplaçait sa largeur bornée ; aucun habillage ni centrage dédié. Aperçu désormais dimensionné selon le ratio de l'image et la fenêtre, centré sur fond sombre, sans rognage. En-tête et bouton Fermer accessibles, états chargement/erreur ; fermeture native Échap et clic réellement extérieur (pas sur la marge intérieure ni après glissement depuis l'image). Redimensionnement suivi.
+- Infobulle ×2 sur les images du plat, vignettes des essais du plat, départs/arrivées des plans et images du sélecteur de sources. Taille calculée sur l'image visible avec object-fit:contain, pas sur ses bandes vides ; proportion conservée et réduction seulement si la fenêtre est trop petite. Placement à droite/gauche puis borné à l'écran, délai 180 ms. Popover manuel au-dessus des fenêtres, sans interception des clics. Accès au focus clavier, pas d'ouverture au toucher. Fermeture sur sortie, défilement, Échap, clic, changement de vue, remplacement des cartes ou perte de focus de la fenêtre.
+- Titres des aperçus des plans et essais précisés ; aria-label/aria-haspopup ajoutés aux boutons d'images. Correction du libellé Réappliquer mon brouillon. Cache CSS/JS Recettes : 20261015.preview1. Aucun backend, donnée, modèle ni file de génération modifié ; aucune dépendance ajoutée. Aucun commit/push.
+- Contrôles statiques réussis : recipes.js compilé par V8 sans invocation ; 2252 IDs HTML uniques, 47 sélecteurs Recettes littéraux résolus ; blocs CSS équilibrés, diff isolé relu, absence d'espaces finaux ajoutés, empreintes vérifiées à l'application. Aucun test exécuté ni ajouté pour ce correctif UI réversible, conformément à AGENTS.md. Aucun appel LLM, génération ni redémarrage ; rendu visuel non vérifié dans un navigateur par l'agent.
+- Sauvegardes avant modification, staging, review.diff, static-checks.json et reçu d'application dans D:/Code/panelforge/.agent/diagnostics/recipes-preview-20261015/.
+
+### Next steps
+- Ctrl+F5 pour charger les nouveaux fichiers statiques ; aucun redémarrage backend nécessaire.
+- Vérifier visuellement dans Recettes le survol ×2 et l'ouverture au clic d'une image portrait/paysage, puis Échap et clic extérieur, notamment près du bord droit de l'écran.
+
 ## Version GitHub 2026-10-13 - Publication sur origin/master
 
 ### Goal
 - Demande utilisateur : "Fais une version GITHUB, Origin master". Publier l'etat actuel de PanelForge sur la branche master du remote GitHub habituel.
 
 ### Current state
-- Instantane prepare depuis D:/Code/panelforge-krea2-flux ; parent origin/master 5f1591bd66821f8bd0cbbbaf8d9e6e144241e2bf. Inclut Recettes, Danse et les derniers correctifs des parcours d'images et transitions. Aucun changement fonctionnel ajoute pour cette publication ; version applicative 2.0.0 conservee.
+- Publication terminee et SHA distant verifie : 457a08f58b1ecc0213976722fcb007b49fc07e08, sur origin/master. Push sans force reussi ; HEAD et index ordinaires des deux checkouts verifies inchanges. URL : https://github.com/EasyFrag/panelforge/commit/457a08f58b1ecc0213976722fcb007b49fc07e08. Confirmation locale ajoutee apres le snapshot publie.
+- Instantane publie depuis D:/Code/panelforge-krea2-flux ; parent origin/master 5f1591bd66821f8bd0cbbbaf8d9e6e144241e2bf. Inclut Recettes, Danse et les derniers correctifs des parcours d'images et transitions. Aucun changement fonctionnel ajoute pour cette publication ; version applicative 2.0.0 conservee.
 - Destination : https://github.com/EasyFrag/panelforge.git, refs/heads/master. Capture via index temporaire et commit-tree ; branches, HEAD et index ordinaires des deux copies de travail conserves. Le master local reste sur 7036248 ; origin/master est la reference de publication.
 - Sources, workflows, prompts, tests et documentation inclus ; workspace, medias generes, secrets et diagnostics locaux exclus. 75 fichiers modifies par rapport au parent. Controle de syntaxe de 54 fichiers Python et git diff --check reussis ; aucun motif de cle privee ou jeton dans les fichiers modifies. Verification JavaScript non realisee pendant cette publication : node absent du PATH.
 - Aucun test execute selon AGENTS.md ; aucun appel LLM, rendu ou redemarrage de service. Recu et controles : D:/Code/panelforge/.agent/diagnostics/github-master-20261013/.
 
 ### Next steps
-- Terminer le push sans force vers origin/master, verifier le SHA distant et inscrire le resultat exact dans le recu local.
 - Tests a lancer par l'utilisateur depuis le checkout actif : python -m unittest discover -s tests.
 
 ## Implémentation 2026-10-11 — Recettes et sauvegarde GitHub
@@ -1249,7 +1391,7 @@
 ### Current state
 - Case ij-auto-mask décochée dans le formulaire ; défaut auto_mask=False également dans l’API de création et ImageJourneyService.create. Une activation explicite reste possible avant création. Les réglages enregistrés des parcours existants, les étapes et les images ne sont pas modifiés. Aucun changement du masque lui-même, de Qwen ou du profil 3 MP.
 - Attentes existantes HTTP/navigateur mises à jour pour le défaut désactivé ; aucun nouveau test ajouté. Guide actualisé. Quatre Python compilés sans exécution ; diff limité contrôlé. Tests NON exécutés suivant AGENTS.md ; aucun appel LLM, rendu ou redémarrage.
-- Modifications dans D:/Code/panelforge-krea2-flux ; sauvegardes exactes, review.diff et checks.json dans D:/Code/panelforge/.agent/diagnostics/journey-mask-default-off-20260930/.
+- Modifications dans D:/Code/panelforge-krea2-flux ; sauvegardes exactes, review.diff et checks.json dans D:/Code/panelforge/.agent/diagnostics/journey-ma[REDACTED_LOCAL_API_KEY]/.
 
 ### Next steps
 - Actualiser la page puis Nouveau : le masque doit être décoché. Les utilisateurs qui veulent le masque peuvent le recocher avant Créer la suite. Le défaut de l’API/service sera chargé au prochain redémarrage habituel du backend choisi par l’utilisateur ; le formulaire transmet déjà explicitement false.

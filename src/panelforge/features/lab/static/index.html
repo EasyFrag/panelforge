@@ -69,8 +69,8 @@
   <link rel="stylesheet" href="/static/story-v2.css?v=20261001.edition21">
   <script src="/static/story-v2-settings.js?v=20260929.defaults1" defer></script>
   <script src="/static/story-v2.js?v=20261005.profiles1" defer></script>
-  <link rel="stylesheet" href="/static/recipes.css?v=20261011.1">
-  <script src="/static/recipes.js?v=20261011.1" defer></script>
+  <link rel="stylesheet" href="/static/recipes.css?v=20261015.scene2">
+  <script src="/static/recipes.js?v=20261015.krea-dual1" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -117,7 +117,7 @@
     <header class="rc-heading">
       <h1>Recettes</h1><select id="rc-projects" aria-label="Ouvrir une recette"></select>
       <button id="rc-new" type="button">Nouvelle recette</button><button id="rc-refresh" type="button">Actualiser</button>
-      <button id="rc-restore-draft" type="button" hidden>R?appliquer mon brouillon</button>
+      <button id="rc-restore-draft" type="button" hidden>Réappliquer mon brouillon</button>
       <span id="rc-status" role="status"></span>
       <button id="rc-pause" type="button" hidden>Pause après l’étape</button>
       <button id="rc-resume" type="button" hidden>Reprendre</button>
@@ -134,7 +134,7 @@
       <div class="rc-universe">
         <div>
           <h2>Le plat terminé</h2>
-          <button type="button" id="rc-master-preview" class="rc-master"><span>Choisir ou créer l’image du plat</span></button>
+          <button type="button" id="rc-master-preview" class="rc-master" aria-label="Agrandir le plat terminé" aria-haspopup="dialog"><span>Choisir ou créer l’image du plat</span></button>
           <div class="rc-actions"><button id="rc-sources" type="button">Depuis mes images</button><label class="rc-upload">Importer une image<input id="rc-upload" type="file" accept="image/*"></label></div>
           <div id="rc-master-trials" class="rc-thumbs" aria-label="Essais du plat terminé"></div>
         </div>
@@ -143,8 +143,8 @@
           <label>Ton intention<textarea id="rc-intention" rows="3" maxlength="6000" placeholder="Le plat à préparer, les gestes à privilégier, l’ambiance…"></textarea></label>
           <div class="rc-row"><label>Durée totale indicative (s)<input id="rc-target_duration" type="number" min="15" max="180" step="1" required></label>
             <label>Format<select id="rc-aspect_ratio"><option value="9:16 (Portrait Widescreen)">Vertical · 9:16</option><option value="16:9 (Widescreen)">Horizontal · 16:9</option><option value="1:1 (Square)">Carré · 1:1</option></select></label></div>
-          <label>Preset KREA2 pour créer le plat<select id="rc-style_preset_id"><option value="">Choisir un preset</option></select></label>
-          <p class="muted">Le preset est utilisé pour créer le plat. Les images des plans reprennent ensuite le plat comme référence visuelle.</p>
+          <label>Preset KREA2 pour le plat et les plans<select id="rc-style_preset_id"><option value="">Choisir un preset</option></select></label>
+          <p class="muted">Le mode KREA2 des plans reprend ce preset, avec la finition Flux Klein. Le prompteur regarde le plat pour préparer chaque nouvelle image.</p>
           <div class="rc-actions"><button id="rc-create-master" type="button">Créer le plat avec KREA2</button><button id="rc-save" type="submit">Enregistrer</button></div>
           <details><summary>Univers, personne et réalisation</summary>
             <label>Monde matériel<textarea id="rc-world" rows="3" maxlength="3000" required></textarea></label>
@@ -165,25 +165,34 @@
       </div>
     </section>
     <section data-rc-panel="breakdown" hidden>
-      <div class="rc-actions"><span id="rc-timing"></span><button id="rc-add" type="button">Ajouter un plan</button><button id="rc-save-shots" type="button">Enregistrer le découpage</button></div>
+      <div class="rc-actions"><span id="rc-timing"></span><button id="rc-add" type="button">Ajouter un plan</button><button id="rc-all-animate" type="button">Passer tous les plans à une image</button><button id="rc-save-shots" type="button">Enregistrer le découpage</button></div>
+      <p class="muted">Une image suffit par défaut pour animer le geste. Réserve deux images aux plans qui exigent une arrivée précise. Les départs utilisables sont conservés lors du passage à une image.</p>
       <div id="rc-shots" class="rc-grid"></div>
       <label>Retravailler le découpage<textarea id="rc-feedback" rows="2" maxlength="4000" placeholder="Davantage de préparation, moins de cuisson…"></textarea></label>
-      <div class="rc-actions"><button id="rc-revise" type="button">Retravailler</button><button id="rc-approve-images" class="primary" type="button">Valider le découpage et générer les images</button></div>
+      <div class="rc-actions"><button id="rc-revise" type="button">Retravailler</button><button id="rc-approve-images" class="primary" type="button">Valider et générer avec H3</button><button id="rc-approve-krea-images" class="primary" type="button">Valider et générer avec KREA2</button></div>
+      <p class="muted">H3 respecte les modes une ou deux images choisis. KREA2 + Flux Klein passe tous les plans à une image de départ avec le preset d’Univers. Le moteur est mémorisé pour les régénérations ; tu peux aussi le choisir par plan.</p>
     </section>
     <section data-rc-panel="images" hidden>
-      <div class="rc-actions"><button data-rc-select="all" type="button">Tout sélectionner</button><button data-rc-select="none" type="button">Tout décocher</button><button id="rc-generate-images" type="button">Générer les images sélectionnées</button><button id="rc-to-clips" type="button">Revoir les clips à préparer →</button></div>
-      <p class="muted">Les images arrivent ici au fil du lot. Revois les essais avant de lancer les vidéos.</p>
+      <div class="rc-actions"><button data-rc-select="all" type="button">Tout sélectionner</button><button data-rc-select="none" type="button">Tout décocher</button><button id="rc-generate-images" type="button">Générer les images sélectionnées</button><button id="rc-review-images" type="button">J’ai revu les images sélectionnées · valider</button><button id="rc-to-clips" type="button">Préparer l’envoi à l’Usine →</button></div>
+      <p class="muted">Avant de valider, vérifie que le plat reste reconnaissable, que les mains et outils permettent le geste, et que l’arrivée conserve le récipient et le cadrage. Une image générée attend ta revue avant l’envoi à l’Usine.</p>
       <div id="rc-images" class="rc-grid"></div>
     </section>
     <section data-rc-panel="clips" hidden>
-      <div class="rc-actions"><button data-rc-select="all" type="button">Tout sélectionner</button><button data-rc-select="none" type="button">Tout décocher</button><button id="rc-generate-clips" class="primary" type="button">Animer les plans sélectionnés</button><button id="rc-export" type="button">Exporter les clips retenus</button></div>
-      <p class="muted">Chaque plan produit son clip. L’export ZIP conserve l’ordre du découpage ; les coupes seront faites dans ton logiciel de montage.</p>
+      <div class="rc-actions"><button data-rc-select="all" type="button">Tout sélectionner</button><button data-rc-select="none" type="button">Tout décocher</button><button id="rc-generate-clips" class="primary" type="button">Envoyer les plans sélectionnés à l’Usine</button><button id="rc-export" type="button">Exporter les clips retenus</button></div>
+      <p class="muted">L’envoi crée une fiche en préparation par plan. Lance Plan, Prompt et vidéo depuis l’Usine ; les clips terminés apparaîtront ici. Une même version envoyée plusieurs fois conserve sa fiche.</p>
+      <p id="rc-send-hint" role="status"></p>
       <div id="rc-clips" class="rc-grid"></div>
     </section>
     <details id="rc-jobs-panel"><summary>Suivi des préparations</summary><div id="rc-jobs"></div></details>
     <dialog id="rc-source-dialog"><header class="rc-heading"><h2>Choisir le plat terminé</h2><button id="rc-source-close" type="button">Fermer</button></header><div id="rc-source-list" class="rc-grid"></div></dialog>
-    <dialog id="rc-lightbox"><button id="rc-lightbox-close" type="button">Fermer</button><img id="rc-lightbox-image" alt="Aperçu de l’image choisie"></dialog>
+    <dialog id="rc-lightbox" class="rc-lightbox" aria-labelledby="rc-lightbox-title">
+      <div id="rc-lightbox-head" class="rc-lightbox-head"><strong id="rc-lightbox-title">Aperçu de l’image</strong><button id="rc-lightbox-close" type="button" aria-label="Fermer l’aperçu" autofocus>Fermer</button></div>
+      <div class="rc-lightbox-body"><p id="rc-lightbox-status" role="status">Chargement de l’image…</p><img id="rc-lightbox-image" alt="" hidden></div>
+    </dialog>
   </main>
+  <div id="rc-hover-preview" class="rc-hover-preview" popover="manual" role="tooltip" hidden>
+    <img id="rc-hover-image" alt=""><span id="rc-hover-caption"></span>
+  </div>
 
   <main id="story-v2-workspace" class="sv2-workspace" hidden>
     <header class="sv2-heading"><h1>Histoire</h1><select id="sv2-projects" aria-label="Ouvrir une histoire"></select><button id="sv2-new" type="button">Nouvelle histoire</button><button id="sv2-refresh" type="button">Actualiser</button><span id="sv2-status" role="status"></span><button id="sv2-pause" type="button" title="Suspend l’enchaînement ; les tâches déjà envoyées continuent dans leur atelier." hidden>Pause après l’étape</button><button id="sv2-resume" type="button" hidden>Reprendre</button></header>

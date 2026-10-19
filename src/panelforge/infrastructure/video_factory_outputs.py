@@ -24,7 +24,7 @@ class VideoFactoryOutputs:
         identity, asset_id = item["id"], material["asset_id"]
         if not re.fullmatch(r"factory-[0-9a-f]{32}", identity) or not re.fullmatch(r"asset-[0-9a-f]{32}", asset_id):
             raise ValueError("Identifiant de résultat invalide.")
-        if material["family"] not in {"Petits hommes", "Levres", "Histoire", "Autres"}:
+        if material["family"] not in {"Petits hommes", "Levres", "Histoire", "Construction", "Recettes", "Autres"}:
             raise ValueError("Famille de résultat invalide.")
         if previous.get("asset_id") == asset_id and previous.get("folder"):
             # IG may finish after midnight; retain the folder assigned to this video.
@@ -42,7 +42,7 @@ class VideoFactoryOutputs:
         video_folder = folder if material["stage"] == "dlss" else folder / "base video"
         video = self._path(video_folder / (stem + suffix + ".mp4"))
         text = self._path(folder / (stem + "_Instagram.txt"))
-        return dict(key=material["key"], asset_id=asset_id, stage=material["stage"],
+        return dict(key=material["key"], asset_id=asset_id, stage=material["stage"], family=material["family"],
                     folder=str(folder), video_path=str(video), text_path=str(text),
                     text_sha256=previous.get("text_sha256") if previous.get("asset_id") == asset_id else None,
                     status="copying", error=None, has_text=False)

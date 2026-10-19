@@ -29,12 +29,36 @@
 #recipes-workspace .rc-placeholder { background:#101010; min-height:260px; display:grid; place-items:center; color:#aaa; padding:16px; text-align:center; }
 #recipes-workspace .rc-check { flex-direction:row; align-items:center; gap:8px; }
 #recipes-workspace .rc-warning { color:#d7bc77; font-size:12px; }
+#recipes-workspace .rc-mode { display:inline-block; margin:0 0 12px; padding:4px 8px; border-radius:6px; color:#354b42; background:#e4ece6; font-size:12px; }
+#recipes-workspace .rc-delivery-status { padding:8px 10px; border-radius:6px; color:#18563f; background:#e4eee7; font-size:13px; }
+#rc-send-hint { color:var(--muted,#68766f); font-size:13px; }
+#rc-send-hint:empty { display:none; }
 #recipes-workspace details { margin:14px 0; padding:10px; border:1px solid #ffffff20; border-radius:7px; }
 #recipes-workspace summary { cursor:pointer; }
 #recipes-workspace .muted { font-size:12px; line-height:1.5; }
 #recipes-workspace dialog { width:min(1150px,94vw); max-height:90vh; overflow:auto; }
-#recipes-workspace #rc-lightbox { width:auto; }
-#recipes-workspace #rc-lightbox img { display:block; max-width:86vw; max-height:80vh; object-fit:contain; }
+#recipes-workspace .rc-frame, #recipes-workspace .rc-master { cursor:zoom-in; }
+#recipes-workspace .rc-frame:focus-visible, #recipes-workspace .rc-master:focus-visible { outline:3px solid var(--green, #69b99c); outline-offset:3px; }
+#rc-lightbox.rc-lightbox { box-sizing:border-box; width:min(480px,calc(100vw - 32px)); max-width:calc(100vw - 32px); max-height:calc(100vh - 32px); max-height:calc(100dvh - 32px); margin:auto; padding:0; overflow:auto; border:1px solid #56615d; border-radius:12px; color:#eef4f1; background:#111614; box-shadow:0 18px 70px #0008; }
+#rc-lightbox::backdrop { background:#050807d1; backdrop-filter:blur(3px); }
+#rc-lightbox .rc-lightbox-head { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:52px; padding:8px 12px; box-sizing:border-box; border-bottom:1px solid #39423f; background:#19201d; }
+#rc-lightbox-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:600 14px/1.4 system-ui,sans-serif; }
+#rc-lightbox-close { flex:none; min-height:34px; padding:6px 12px; border:1px solid #65716c; border-radius:7px; color:#eef4f1; background:#27312d; font:500 13px/1.4 system-ui,sans-serif; cursor:pointer; }
+#rc-lightbox-close:hover { background:#39463f; }
+#rc-lightbox-close:focus-visible { outline:2px solid #9bd7c1; outline-offset:2px; }
+#rc-lightbox .rc-lightbox-body { display:grid; place-items:center; padding:12px; }
+#rc-lightbox-image { display:block; max-width:100%; object-fit:contain; border-radius:4px; }
+#rc-lightbox-status { margin:0; padding:50px 12px; color:#d4ded8; font:14px/1.5 system-ui,sans-serif; text-align:center; }
+#rc-lightbox [hidden] { display:none; }
+.rc-hover-preview { position:fixed; inset:auto; margin:0; padding:6px; box-sizing:content-box; max-width:none; max-height:none; border:1px solid #65716c; border-radius:9px; color:#eef4f1; background:#111614; box-shadow:0 8px 32px #0006; z-index:10000; pointer-events:none; }
+.rc-hover-preview[hidden] { display:none; }
+.rc-hover-preview::backdrop { background:transparent; pointer-events:none; }
+.rc-hover-preview img { display:block; width:100%; object-fit:contain; border-radius:4px; }
+.rc-hover-preview span { display:block; height:18px; margin-top:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:12px/18px system-ui,sans-serif; }
 #recipes-workspace .rc-upload { max-width:240px; }
+#recipes-workspace .rc-reviewed { padding:8px 10px; border-radius:6px; color:var(--green, #18654e); background:#409d7918; font-weight:600; }
+#recipes-workspace .rc-archives { border-style:dashed; border-color:#8886; }
+#recipes-workspace .rc-archives > summary { color:var(--muted, #66736b); }
+#recipes-workspace [data-rc-review] { align-self:flex-start; }
 #recipes-workspace #rc-jobs > p { padding:6px 0; border-bottom:1px solid #ffffff12; font-size:12px; }
 @media(max-width:760px) { #recipes-workspace { padding:12px; } #recipes-workspace .rc-universe { grid-template-columns:1fr; } #recipes-workspace .rc-master { height:360px; } #recipes-workspace .rc-grid { grid-template-columns:1fr; } }

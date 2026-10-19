@@ -39,6 +39,13 @@ def delivery_material(item):
     preset = config.get("preset_origin") or config["preset"]
     family = ("Histoire" if item["source"].get("kind") == "episode" else
               {"little_men": "Petits hommes", "little_men_experimental": "Petits hommes", "lips": "Levres"}.get(preset, "Autres"))
+    previous = item.get("delivery") or {}
+    if previous.get("asset_id") == asset_id and previous.get("folder"):
+        # Keep legacy delivery keys/folders stable; old journals have no family field.
+        family = previous.get("family") or family
+    else:
+        family = {"image_transition": "Construction", "cooking_recipe": "Recettes"}.get(
+            item["source"].get("kind"), family)
     name = item["name"]
     if family == "Histoire":
         name = f"{item['source'].get('group', 'Histoire')}_scene_{item['source'].get('index', 0) + 1:02d}_{name}"
