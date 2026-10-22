@@ -17,7 +17,8 @@ from panelforge.application import firered_edit_assistance, krea2_edit_assistanc
 from panelforge.domain import Krea2AspectRatio, Krea2EditMetadata, Krea2EditSettings
 from panelforge.domain.edit_settings import edit_output_dimensions
 from panelforge.domain.firered_edit import FireRedEditSettings
-from panelforge.features.lab.web import create_app, serialize_krea2_edit_source
+from panelforge.features.lab.web import create_app
+from panelforge.features.lab.krea2_edit_web import serialize_krea2_edit_source
 from panelforge.infrastructure.edit_images import PillowEditImages
 from panelforge.infrastructure.krea2_image_metadata import recover_krea2_metadata
 from panelforge.infrastructure.krea2_project_exports import LocalKrea2ProjectExporter, _accepted_sidecar

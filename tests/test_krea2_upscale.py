@@ -12,7 +12,8 @@ from fastapi.testclient import TestClient
 
 from panelforge.application import ChangeViewRunner
 from panelforge.domain.krea2_edit import Krea2EditAttemptStatus as Status
-from panelforge.features.lab.web import create_app, serialize_krea2_edit_source
+from panelforge.features.lab.web import create_app
+from panelforge.features.lab.krea2_edit_web import serialize_krea2_edit_source
 from panelforge.infrastructure.comfy import ComfyHttpClient, ComfyImageRef
 from panelforge.infrastructure.krea2_upscale import PillowUpscaleImages
 from panelforge.infrastructure.presets.image_upscale import load_image_upscale_workflow

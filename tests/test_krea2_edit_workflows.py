@@ -10,7 +10,7 @@ from panelforge.application import Krea2EditAttemptRequest, Krea2EditService
 from panelforge.application.krea2_edit import _sidecar
 from panelforge.domain import Krea2AspectRatio, Krea2EditMetadata, Krea2EditSettings
 from panelforge.domain.krea2_batch import Krea2LoraSelection
-from panelforge.features.lab.web import serialize_krea2_edit_source
+from panelforge.features.lab.krea2_edit_web import serialize_krea2_edit_source
 from panelforge.infrastructure.krea2_project_exports import _accepted_sidecar
 from panelforge.infrastructure.presets import load_krea2_edit_workflow
 from panelforge.infrastructure.storage import LocalAssetStore, LocalKrea2EditStore

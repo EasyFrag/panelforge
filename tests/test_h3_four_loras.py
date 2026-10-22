@@ -12,7 +12,8 @@ from panelforge.application.dlss_candidates import DlssCandidates
 from panelforge.application.h3_render import _attempt_context
 from panelforge.domain.dlss import DlssSettings
 from panelforge.domain.h3_render import H3RenderAttemptStatus, H3RenderInputMode, H3VideoLoraSlot, H3VideoLoraStack
-from panelforge.features.lab.web import create_app, serialize_h3_render_project
+from panelforge.features.lab.web import create_app
+from panelforge.features.lab.h3_render_web import serialize_h3_render_project
 from panelforge.infrastructure.storage import LocalH3RenderProjectStore
 from tests import test_h3_multiple_loras as previous
 

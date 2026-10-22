@@ -18,7 +18,7 @@ from panelforge.domain.h3_bunny import H3BunnySettings
 from panelforge.domain.h3_render import H3RenderAttemptStatus, H3RenderInputMode
 from panelforge.domain.video_lab import VideoAspectRatio, VideoLabSettings
 from panelforge.features.lab.dance_web import dance_router
-from panelforge.features.lab.web import serialize_h3_render_project
+from panelforge.features.lab.h3_render_web import serialize_h3_render_project
 from panelforge.infrastructure.presets import Ref2VH3RenderPresetRecipe, VideoLabPresetRecipe, load_video_lab_workflow
 from panelforge.infrastructure.presets.h3_bunny import BunnyH3RenderRecipe
 from panelforge.infrastructure.presets.h3_dance import dance_recipes

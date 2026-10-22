@@ -12,7 +12,8 @@ from panelforge.application.h3_render import H3RenderService, _attempt_context
 from panelforge.domain.h3_bunny import BUNNY_RECIPE_ID, H3BunnySettings, bunny_geometry
 from panelforge.domain.h3_render import H3RenderInputMode, H3RenderProject, H3VideoLoraSelection
 from panelforge.domain.video_lab import VideoAspectRatio, VideoLabSettings
-from panelforge.features.lab.web import create_app, serialize_h3_render_project
+from panelforge.features.lab.web import create_app
+from panelforge.features.lab.h3_render_web import serialize_h3_render_project
 from panelforge.infrastructure.presets.h3_bunny import BunnyH3RenderRecipe
 from panelforge.infrastructure.presets import (
     H3RenderPresetRecipe, load_h3_render_workflow,

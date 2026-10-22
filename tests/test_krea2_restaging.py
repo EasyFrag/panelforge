@@ -17,7 +17,8 @@ from panelforge.application import ChangeViewRunner, Krea2AssistedService, Krea2
 from panelforge.application.krea2_restage import DEFAULT_INSTRUCTION, RestagingConflictError
 from panelforge.domain.assisted_composition import AssistedComposition
 from panelforge.domain.krea2_edit import Krea2EditMetadata, Krea2EditSettings
-from panelforge.features.lab.web import create_app, serialize_krea2_edit_source
+from panelforge.features.lab.web import create_app
+from panelforge.features.lab.krea2_edit_web import serialize_krea2_edit_source
 from panelforge.infrastructure.comfy import ComfyImageRef
 from panelforge.infrastructure.edit_images import PillowEditImages
 from panelforge.infrastructure.krea2_creation_exports import LocalKrea2CreationExporter

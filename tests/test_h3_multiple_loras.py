@@ -18,7 +18,8 @@ from panelforge.domain.h3_render import (
     H3VideoLoraSelection, H3VideoLoraSlot, H3VideoLoraStack,
 )
 from panelforge.domain.video_lab import VideoAspectRatio, VideoLabSettings
-from panelforge.features.lab.web import create_app, serialize_h3_render_project
+from panelforge.features.lab.web import create_app
+from panelforge.features.lab.h3_render_web import serialize_h3_render_project
 from panelforge.infrastructure.presets import (
     H3RenderPresetRecipe, Ref2VH3RenderPresetRecipe, VideoLabPresetRecipe,
     load_h3_render_workflow, load_video_lab_workflow,

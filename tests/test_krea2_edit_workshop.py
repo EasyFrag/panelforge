@@ -9,7 +9,7 @@ from panelforge.application import krea2_edit_assistance
 from panelforge.domain import Krea2EditMetadata, Krea2EditSettings, Krea2AspectRatio
 from panelforge.infrastructure.presets import load_krea2_edit_workflow
 from panelforge.infrastructure.storage import LocalAssetStore, LocalKrea2EditStore
-from panelforge.features.lab.web import serialize_krea2_edit_source
+from panelforge.features.lab.krea2_edit_web import serialize_krea2_edit_source
 from tests.test_krea2_edit import FakeGateway, PNG, WORKFLOW
 
 

@@ -1,0 +1,1603 @@
+{
+  "snapshot_commit": "8bf43a91ed63fb4d5807a1a11805fe532cc778f2",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/",
+      "endpoint": "index",
+      "status_code": null,
+      "annotations": {
+        "return": "FileResponse"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/instance",
+      "endpoint": "instance_identity",
+      "status_code": null,
+      "annotations": {
+        "response": "Response",
+        "return": "dict[str, Any]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/network-mode",
+      "endpoint": "network_configuration",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, str | None]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/model-runtime/unload",
+      "endpoint": "unload_model_runtime",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, str]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/runtime/status",
+      "endpoint": "runtime_status",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/work-scheduler/status",
+      "endpoint": "work_scheduler_status",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/work-scheduler/thermal-history",
+      "endpoint": "work_scheduler_thermal_history",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/work-scheduler/settings",
+      "endpoint": "work_scheduler_settings",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/work-scheduler/settings",
+      "endpoint": "update_work_scheduler_settings",
+      "status_code": null,
+      "annotations": {
+        "body": "WorkSchedulerSettingsBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/work-scheduler/{resource}/pause",
+      "endpoint": "pause_work_scheduler",
+      "status_code": null,
+      "annotations": {
+        "resource": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/work-scheduler/{resource}/resume",
+      "endpoint": "resume_work_scheduler",
+      "status_code": null,
+      "annotations": {
+        "resource": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/comfy-runtime/free",
+      "endpoint": "free_comfy_runtime",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, str]"
+      }
+    },
+    {
+      "method": "WEBSOCKET",
+      "path": "/api/runtime/events",
+      "endpoint": "runtime_events",
+      "status_code": null,
+      "annotations": {
+        "websocket": "WebSocket",
+        "return": "None"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/change-view/spec",
+      "endpoint": "change_view_spec",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/change-view/preview",
+      "endpoint": "preview_prompt",
+      "status_code": null,
+      "annotations": {
+        "body": "PreviewBody",
+        "return": "dict[str, str]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/runs",
+      "endpoint": "create_run",
+      "status_code": 202,
+      "annotations": {
+        "background_tasks": "BackgroundTasks",
+        "source_image": "Annotated[UploadFile | None, File()]",
+        "source_asset_id": "Annotated[str | None, Form()]",
+        "azimuth": "Annotated[str, Form()]",
+        "elevation": "Annotated[str, Form()]",
+        "shot_size": "Annotated[str, Form()]",
+        "lora_strength": "Annotated[str, Form()]",
+        "seed": "Annotated[str, Form()]",
+        "steps": "Annotated[str, Form()]",
+        "megapixels": "Annotated[str | None, Form()]",
+        "aspect_ratio": "Annotated[str, Form()]",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/runs",
+      "endpoint": "list_runs",
+      "status_code": null,
+      "annotations": {
+        "limit": "int",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/runs/{run_id}",
+      "endpoint": "get_run",
+      "status_code": null,
+      "annotations": {
+        "run_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/runs/{run_id}/review",
+      "endpoint": "review_run",
+      "status_code": null,
+      "annotations": {
+        "run_id": "str",
+        "body": "ReviewBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/runs/{run_id}/reuse",
+      "endpoint": "reuse_run",
+      "status_code": null,
+      "annotations": {
+        "run_id": "str",
+        "return": "dict[str, str]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/assets/{asset_id}/content",
+      "endpoint": "asset_content",
+      "status_code": null,
+      "annotations": {
+        "asset_id": "str",
+        "request": "Request",
+        "return": "Response"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/social-lab/spec",
+      "endpoint": "social_lab_spec",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/social-lab/profiles",
+      "endpoint": "list_social_profiles",
+      "status_code": null,
+      "annotations": {
+        "limit": "int",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/social-lab/profiles",
+      "endpoint": "create_social_profile",
+      "status_code": 201,
+      "annotations": {
+        "body": "SocialProfileBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/social-lab/profiles/{profile_id}",
+      "endpoint": "update_social_profile",
+      "status_code": null,
+      "annotations": {
+        "profile_id": "str",
+        "body": "SocialProfileBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/social-lab/projects",
+      "endpoint": "create_social_project",
+      "status_code": 201,
+      "annotations": {
+        "name": "Annotated[str, Form()]",
+        "model_id": "Annotated[str, Form()]",
+        "language": "Annotated[str, Form()]",
+        "variant_count": "Annotated[int, Form()]",
+        "video": "Annotated[UploadFile, File()]",
+        "keyframes": "Annotated[list[UploadFile], File()]",
+        "mood": "Annotated[str, Form()]",
+        "vibe": "Annotated[str, Form()]",
+        "example": "Annotated[str, Form()]",
+        "instructions": "Annotated[str, Form()]",
+        "channel_profile_id": "Annotated[str | None, Form()]",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/social-lab/projects",
+      "endpoint": "list_social_projects",
+      "status_code": null,
+      "annotations": {
+        "limit": "int",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/social-lab/projects/{project_id}",
+      "endpoint": "get_social_project",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/social-lab/projects/{project_id}/chat/stream",
+      "endpoint": "stream_social_chat",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "body": "SocialChatBody",
+        "include_reasoning": "bool",
+        "return": "StreamingResponse"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/image-lab/krea2-batch/resources/{resource_id}",
+      "endpoint": "krea2_resource_detail",
+      "status_code": null,
+      "annotations": {
+        "resource_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-batch/resources/{resource_id}/preference",
+      "endpoint": "update_krea2_resource_preference",
+      "status_code": null,
+      "annotations": {
+        "resource_id": "str",
+        "body": "Krea2ResourcePreferenceBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-batch/resources/{resource_id}/refresh",
+      "endpoint": "refresh_krea2_resource",
+      "status_code": null,
+      "annotations": {
+        "resource_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/image-lab/krea2-assisted/spec",
+      "endpoint": "krea2_assisted_spec",
+      "status_code": null,
+      "annotations": {
+        "refresh": "bool",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects",
+      "endpoint": "create_krea2_assisted_project",
+      "status_code": 201,
+      "annotations": {
+        "name": "Annotated[str, Form()]",
+        "model_id": "Annotated[str, Form()]",
+        "intention": "Annotated[str, Form()]",
+        "reference": "Annotated[UploadFile | None, File()]",
+        "assistance_recipe_version": "Annotated[str, Form()]",
+        "style_preset_id": "Annotated[str | None, Form()]",
+        "art_style_id": "Annotated[str | None, Form()]",
+        "prompt_language": "Annotated[str | None, Form()]",
+        "local_inspiration_enabled": "Annotated[bool, Form()]",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/image-lab/krea2-assisted/style-presets",
+      "endpoint": "list_krea2_style_presets",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/image-lab/krea2-assisted/art-styles",
+      "endpoint": "list_krea2_art_styles",
+      "status_code": null,
+      "annotations": {
+        "query": "str",
+        "category": "str | None",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/art-styles/install",
+      "endpoint": "install_krea2_art_styles",
+      "status_code": null,
+      "annotations": {
+        "force": "bool",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/image-lab/krea2-assisted/art-styles/thumbnail",
+      "endpoint": "get_krea2_art_style_thumbnail",
+      "status_code": null,
+      "annotations": {
+        "style_id": "str",
+        "return": "FileResponse"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/prompt-library/index",
+      "endpoint": "index_krea2_prompt_library",
+      "status_code": 202,
+      "annotations": {
+        "force": "bool",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/style-presets",
+      "endpoint": "save_krea2_style_preset",
+      "status_code": null,
+      "annotations": {
+        "body": "Krea2StylePresetSaveBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/image-lab/krea2-assisted/style-presets/{preset_id}",
+      "endpoint": "update_krea2_style_preset",
+      "status_code": null,
+      "annotations": {
+        "preset_id": "str",
+        "body": "Krea2StylePresetUpdateBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/image-lab/krea2-assisted/style-presets/{preset_id}",
+      "endpoint": "delete_krea2_style_preset",
+      "status_code": null,
+      "annotations": {
+        "preset_id": "str",
+        "body": "Krea2StylePresetDeleteBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/style-preset",
+      "endpoint": "apply_krea2_style_preset",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "body": "Krea2StylePresetApplyBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/art-direction",
+      "endpoint": "apply_krea2_art_direction",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "body": "Krea2ArtDirectionApplyBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/image-lab/krea2-assisted/projects",
+      "endpoint": "list_krea2_assisted_projects",
+      "status_code": null,
+      "annotations": {
+        "limit": "int",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}",
+      "endpoint": "get_krea2_assisted_project",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/prompt-example",
+      "endpoint": "select_krea2_prompt_example",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "body": "Krea2AssistedPromptExampleBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/local-inspiration",
+      "endpoint": "set_krea2_local_inspiration",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "body": "Krea2AssistedLocalInspirationBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/prompt-example/variant",
+      "endpoint": "recompile_krea2_prompt_example",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "body": "Krea2AssistedExpectedBranchBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/image-lab/krea2-assisted/wildcard-preview",
+      "endpoint": "get_krea2_wildcard_preview",
+      "status_code": null,
+      "annotations": {
+        "template_id": "str",
+        "return": "FileResponse"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/guidance-images",
+      "endpoint": "upload_krea2_assisted_guidance",
+      "status_code": 201,
+      "annotations": {
+        "project_id": "str",
+        "image": "Annotated[UploadFile, File()]",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/chat/stream",
+      "endpoint": "stream_krea2_assisted_chat",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "body": "Krea2AssistedChatBody",
+        "include_reasoning": "bool",
+        "return": "StreamingResponse"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/image-lab/krea2-assisted/render-queue",
+      "endpoint": "krea2_assisted_render_queue",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/attempts",
+      "endpoint": "prepare_krea2_assisted_attempt",
+      "status_code": 201,
+      "annotations": {
+        "project_id": "str",
+        "body": "Krea2AssistedAttemptBody",
+        "response": "Response",
+        "enqueue": "bool",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/attempts/{attempt_id}/start",
+      "endpoint": "start_krea2_assisted_attempt",
+      "status_code": 202,
+      "annotations": {
+        "project_id": "str",
+        "attempt_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/attempts/{attempt_id}/cancel",
+      "endpoint": "cancel_krea2_assisted_attempt",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "attempt_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/branches",
+      "endpoint": "change_krea2_assisted_branch",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "body": "Krea2AssistedBranchBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/feedback",
+      "endpoint": "select_krea2_assisted_feedback",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "body": "Krea2AssistedFeedbackBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/attempts/{attempt_id}/save",
+      "endpoint": "save_krea2_assisted_image",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "attempt_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/recipe-draft",
+      "endpoint": "update_krea2_assisted_recipe_draft",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "body": "Krea2AssistedRecipeDraftBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/recipe/publish",
+      "endpoint": "publish_krea2_assisted_recipe",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "body": "Krea2AssistedRecipePublishBody | None",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/image-lab/krea2-edit/spec",
+      "endpoint": "krea2_edit_spec",
+      "status_code": null,
+      "annotations": {
+        "refresh": "bool",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/image-lab/krea2-edit/upscalers",
+      "endpoint": "list_krea2_edit_upscalers",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-edit/sources/{source_id}/attempts/{attempt_id}/upscale",
+      "endpoint": "upscale_krea2_edit_attempt",
+      "status_code": 202,
+      "annotations": {
+        "source_id": "str",
+        "attempt_id": "str",
+        "body": "Krea2EditUpscaleBody",
+        "background_tasks": "BackgroundTasks",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-edit/sources",
+      "endpoint": "create_krea2_edit_source",
+      "status_code": 201,
+      "annotations": {
+        "source_image": "Annotated[UploadFile, File()]",
+        "sidecar": "Annotated[UploadFile | None, File()]",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/image-lab/krea2-edit/sources",
+      "endpoint": "list_krea2_edit_sources",
+      "status_code": null,
+      "annotations": {
+        "limit": "int",
+        "include_hidden": "bool",
+        "project_limit": "int | None",
+        "project_id": "str | None",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/image-lab/krea2-edit/sources/{source_id}",
+      "endpoint": "get_krea2_edit_source",
+      "status_code": null,
+      "annotations": {
+        "source_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/image-lab/krea2-edit/projects/{project_id}",
+      "endpoint": "get_krea2_edit_project",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-edit/sources/{source_id}/resume",
+      "endpoint": "resume_krea2_edit_stage",
+      "status_code": null,
+      "annotations": {
+        "source_id": "str",
+        "body": "Krea2EditResumeBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-edit/sources/{source_id}/restart",
+      "endpoint": "restart_krea2_edit_stage",
+      "status_code": null,
+      "annotations": {
+        "source_id": "str",
+        "body": "Krea2EditRestartBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-edit/sources/{source_id}/prompt/stream",
+      "endpoint": "stream_krea2_edit_prompt",
+      "status_code": null,
+      "annotations": {
+        "source_id": "str",
+        "body": "Krea2EditPromptBody",
+        "include_reasoning": "bool",
+        "return": "StreamingResponse"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-edit/sources/{source_id}/attempts",
+      "endpoint": "prepare_krea2_edit_attempt",
+      "status_code": 201,
+      "annotations": {
+        "source_id": "str",
+        "body": "Krea2EditAttemptBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-edit/sources/{source_id}/attempts/{attempt_id}/start",
+      "endpoint": "start_krea2_edit_attempt",
+      "status_code": 202,
+      "annotations": {
+        "source_id": "str",
+        "attempt_id": "str",
+        "background_tasks": "BackgroundTasks",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-edit/sources/{source_id}/attempts/{attempt_id}/cancel",
+      "endpoint": "cancel_krea2_edit_attempt",
+      "status_code": null,
+      "annotations": {
+        "source_id": "str",
+        "attempt_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-edit/sources/{source_id}/attempts/{attempt_id}/promote",
+      "endpoint": "promote_krea2_edit_attempt",
+      "status_code": 201,
+      "annotations": {
+        "source_id": "str",
+        "attempt_id": "str",
+        "body": "Krea2EditPromotionBody | None",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-edit/sources/{source_id}/crop",
+      "endpoint": "crop_krea2_edit_source",
+      "status_code": 201,
+      "annotations": {
+        "source_id": "str",
+        "body": "Krea2EditCropBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/scene-images",
+      "endpoint": "upload_assisted_scene",
+      "status_code": 201,
+      "annotations": {
+        "project_id": "str",
+        "image": "Annotated[UploadFile, File()]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-assisted/projects/{project_id}/attempts/{attempt_id}/restage",
+      "endpoint": "restage_assisted_image",
+      "status_code": 201,
+      "annotations": {
+        "project_id": "str",
+        "attempt_id": "str",
+        "body": "Krea2RestageBody"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/image-lab/krea2-edit/sources/{source_id}/attempts/{attempt_id}/retouch",
+      "endpoint": "prepare_krea2_edit_retouch",
+      "status_code": null,
+      "annotations": {
+        "source_id": "str",
+        "attempt_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-edit/sources/{source_id}/attempts/{attempt_id}/retouch",
+      "endpoint": "save_krea2_edit_retouch",
+      "status_code": 201,
+      "annotations": {
+        "source_id": "str",
+        "attempt_id": "str",
+        "mask": "Annotated[UploadFile, File()]",
+        "request_id": "Annotated[str, Form(min_length=1, max_length=80)]",
+        "harmonize": "Annotated[bool, Form()]",
+        "harmonize_strength": "Annotated[int, Form(ge=0, le=100)]",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-edit/sources/{source_id}/export",
+      "endpoint": "retry_krea2_edit_project_export",
+      "status_code": null,
+      "annotations": {
+        "source_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/image-lab/krea2-edit/sources/{source_id}/state",
+      "endpoint": "update_krea2_edit_source_state",
+      "status_code": null,
+      "annotations": {
+        "source_id": "str",
+        "body": "Krea2EditSourceStateBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/h3-render/video-loras",
+      "endpoint": "h3_render_video_loras",
+      "status_code": null,
+      "annotations": {
+        "refresh": "bool",
+        "return": "dict"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/h3-render/video-loras/resources",
+      "endpoint": "h3_lora_resource",
+      "status_code": null,
+      "annotations": {
+        "name": "str",
+        "return": "dict"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/h3-render/video-loras/resources/{resource_id}/preference",
+      "endpoint": "update_h3_lora_resource",
+      "status_code": null,
+      "annotations": {
+        "resource_id": "str",
+        "body": "Krea2ResourcePreferenceBody",
+        "return": "dict"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/h3-render/video-loras/resources/{resource_id}/refresh",
+      "endpoint": "refresh_h3_lora_resource",
+      "status_code": null,
+      "annotations": {
+        "resource_id": "str",
+        "return": "dict"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/h3-render/checkpoints",
+      "endpoint": "h3_render_checkpoints",
+      "status_code": null,
+      "annotations": {
+        "mode": "str",
+        "refresh": "bool",
+        "return": "dict"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/h3-render/spec",
+      "endpoint": "h3_render_spec",
+      "status_code": null,
+      "annotations": {
+        "mode": "str",
+        "recipe_id": "str | None",
+        "recipe_version": "str | None",
+        "purpose": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/h3-render/projects/from-session/{session_id}",
+      "endpoint": "create_h3_render_project",
+      "status_code": 201,
+      "annotations": {
+        "session_id": "str",
+        "prompt_language": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/h3-render/projects/{project_id}",
+      "endpoint": "get_h3_render_project",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/h3-render/adaptations",
+      "endpoint": "list_h3_adaptations",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/h3-render/projects/{project_id}/adaptation-reference",
+      "endpoint": "upload_h3_adaptation_reference",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "image": "Annotated[UploadFile, File()]",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/h3-render/projects/{project_id}/adapt-ref2v",
+      "endpoint": "prepare_h3_adaptation",
+      "status_code": 201,
+      "annotations": {
+        "project_id": "str",
+        "body": "H3Ref2VConversionBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/h3-render/projects/{project_id}/adapt-ref2v/stream",
+      "endpoint": "stream_h3_adaptation",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "include_reasoning": "bool",
+        "return": "StreamingResponse"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/h3-render/projects/{project_id}/chat/stream",
+      "endpoint": "stream_h3_render_chat",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "body": "H3RenderChatBody",
+        "include_reasoning": "bool",
+        "return": "StreamingResponse"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/h3-render/projects/{project_id}/attempts",
+      "endpoint": "prepare_h3_render_attempt",
+      "status_code": 201,
+      "annotations": {
+        "project_id": "str",
+        "body": "H3RenderAttemptBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/h3-render/projects/{project_id}/attempts/{attempt_id}/start",
+      "endpoint": "start_h3_render_attempt",
+      "status_code": 202,
+      "annotations": {
+        "project_id": "str",
+        "attempt_id": "str",
+        "background_tasks": "BackgroundTasks",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/h3-render/projects/{project_id}/attempts/{attempt_id}/cancel",
+      "endpoint": "cancel_h3_render_attempt",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "attempt_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/h3-render/projects/{project_id}/attempts/{attempt_id}/resume",
+      "endpoint": "resume_h3_render_attempt",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "attempt_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/h3-render/projects/{project_id}/feedback",
+      "endpoint": "select_h3_render_feedback",
+      "status_code": null,
+      "annotations": {
+        "project_id": "str",
+        "body": "H3RenderFeedbackBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "WEBSOCKET",
+      "path": "/api/h3-render/projects/{project_id}/attempts/{attempt_id}/events",
+      "endpoint": "h3_render_events",
+      "status_code": null,
+      "annotations": {
+        "websocket": "WebSocket",
+        "project_id": "str",
+        "attempt_id": "str",
+        "return": "None"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/prompt-lab/spec",
+      "endpoint": "prompt_lab_spec",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/prompt-lab/models",
+      "endpoint": "prompt_lab_models",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions",
+      "endpoint": "create_prompt_lab_session",
+      "status_code": 201,
+      "annotations": {
+        "model_id": "Annotated[str, Form()]",
+        "profile_id": "Annotated[str, Form()]",
+        "profile_version": "Annotated[str, Form()]",
+        "brief_variant_id": "Annotated[str | None, Form()]",
+        "brief_variant_version": "Annotated[str | None, Form()]",
+        "images": "Annotated[list[UploadFile] | None, File()]",
+        "roles": "Annotated[list[str] | None, Form()]",
+        "usages": "Annotated[list[str] | None, Form()]",
+        "evidence_policies": "Annotated[list[str] | None, Form()]",
+        "combat_settings": "Annotated[str | None, Form()]",
+        "cinematic_settings": "Annotated[str | None, Form()]",
+        "sensual_settings": "Annotated[str | None, Form()]",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/prompt-lab/sessions",
+      "endpoint": "list_prompt_lab_sessions",
+      "status_code": null,
+      "annotations": {
+        "limit": "int",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/prompt-lab/sessions/{session_id}",
+      "endpoint": "get_prompt_lab_session",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/fork",
+      "endpoint": "fork_prompt_lab_session",
+      "status_code": 201,
+      "annotations": {
+        "session_id": "str",
+        "body": "PromptSessionForkBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/brief/variant",
+      "endpoint": "configure_prompt_brief_variant",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "body": "BriefVariantBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/brief/structure",
+      "endpoint": "structure_prompt_brief",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "body": "BriefStructureBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/brief/structure/stream",
+      "endpoint": "stream_prompt_brief",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "body": "BriefStructureBody",
+        "include_reasoning": "bool",
+        "return": "StreamingResponse"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/brief/edit",
+      "endpoint": "edit_prompt_brief",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "body": "PromptEditBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/brief/revise",
+      "endpoint": "revise_prompt_brief",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "body": "PromptRevisionBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/brief/revise/stream",
+      "endpoint": "stream_prompt_brief_revision",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "body": "PromptRevisionBody",
+        "include_reasoning": "bool",
+        "return": "StreamingResponse"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/brief/approve",
+      "endpoint": "approve_prompt_brief",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/prompt-lab/cookbooks",
+      "endpoint": "list_prompt_cookbooks",
+      "status_code": null,
+      "annotations": {
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/prompt-lab/sessions/{session_id}/composition",
+      "endpoint": "get_prompt_composition",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/composition",
+      "endpoint": "configure_prompt_composition",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "body": "CompositionConfigureBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/prompt-lab/sessions/{session_id}/composition/writer-model",
+      "endpoint": "set_composition_writer_model",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "body": "CompositionWriterModelBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/composition/final-prompt/variants/zh/stream",
+      "endpoint": "stream_chinese_prompt_variant",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "body": "ChinesePromptVariantBody",
+        "include_reasoning": "bool",
+        "return": "StreamingResponse"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/super-fast/stream",
+      "endpoint": "stream_super_fast_ref2v",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "body": "SuperFastRef2VBody",
+        "include_reasoning": "bool",
+        "return": "StreamingResponse"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/{stage}/generate/stream",
+      "endpoint": "stream_composition_generation",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "stage": "str",
+        "include_reasoning": "bool",
+        "return": "StreamingResponse"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/beat-sheet/reconcile/stream",
+      "endpoint": "stream_action_plan_reconciliation",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "body": "PlanArbitrationBody",
+        "include_reasoning": "bool",
+        "return": "StreamingResponse"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/{stage}/edit",
+      "endpoint": "edit_composition_stage",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "stage": "str",
+        "body": "PromptEditBody",
+        "return": "dict[str, object]"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/{stage}/revise/stream",
+      "endpoint": "stream_composition_revision",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "stage": "str",
+        "body": "PromptRevisionBody",
+        "include_reasoning": "bool",
+        "return": "StreamingResponse"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/prompt-lab/sessions/{session_id}/{stage}/approve",
+      "endpoint": "approve_composition_stage",
+      "status_code": null,
+      "annotations": {
+        "session_id": "str",
+        "stage": "str",
+        "return": "dict[str, object]"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "module": "change_view_web",
+      "serializer": "serialize_run",
+      "contract": "RunPayload",
+      "fields": {
+        "id": "str",
+        "run_id": "str",
+        "status": "str",
+        "decision": "str",
+        "recipe": "dict[str, object]",
+        "source_asset_id": "str",
+        "source_url": "str",
+        "output_asset_id": "str | None",
+        "result_asset_id": "str | None",
+        "result_url": "str | None",
+        "parent_run_id": "str | None",
+        "controls": "dict[str, object]",
+        "compiled_prompt": "str",
+        "negative_prompt": "str",
+        "prompt_policy": "str",
+        "experimental_overrides": "list[str]",
+        "execution_id": "str | None",
+        "compiled_workflow_sha256": "str | None",
+        "error": "str | None"
+      }
+    },
+    {
+      "module": "h3_render_web",
+      "serializer": "serialize_h3_render_project",
+      "contract": "H3RenderProjectPayload",
+      "fields": {
+        "id": "str",
+        "dance_reference": "dict[str, object] | None",
+        "project_id": "str",
+        "source_session_id": "str",
+        "source_prompt_revision_id": "str",
+        "prompt_language": "str",
+        "model_id": "str",
+        "revision_model_id": "str | None",
+        "input_mode": "str",
+        "preparation": "dict[str, object]",
+        "cinematic_settings": "dict[str, object] | None",
+        "sensual_settings": "dict[str, object] | None",
+        "combat_settings": "dict[str, object] | None",
+        "combat_shot_count": "int | None",
+        "revision_versions": "list[dict[str, object]]",
+        "dialogue_level": "int",
+        "adaptation": "dict[str, object] | None",
+        "current_prompt": "str",
+        "revision_version": "str | None",
+        "camera_clauses": "list[str]",
+        "revision_draft": "str | None",
+        "revision_error": "str | None",
+        "revision_draft_version": "str | None",
+        "planned_cut_times_ms": "list[int]",
+        "first_frame": "dict[str, object] | None",
+        "last_frame": "dict[str, object] | None",
+        "references": "list[dict[str, object] | None]",
+        "turns": "list[dict[str, object]]",
+        "attempts": "list[dict[str, object]]",
+        "feedback_attempt_id": "str | None",
+        "warnings": "list[str]"
+      }
+    },
+    {
+      "module": "social_lab_web",
+      "serializer": "serialize_social_profile",
+      "contract": "SocialProfilePayload",
+      "fields": {
+        "profile_id": "str",
+        "name": "str",
+        "language": "str",
+        "mood": "str",
+        "vibe": "str",
+        "example": "str",
+        "instructions": "str"
+      }
+    },
+    {
+      "module": "social_lab_web",
+      "serializer": "serialize_social_project",
+      "contract": "SocialProjectPayload",
+      "fields": {
+        "project_id": "str",
+        "id": "str",
+        "name": "str",
+        "model_id": "str",
+        "language": "str",
+        "variant_count": "int",
+        "video_asset_id": "str",
+        "video_filename": "str",
+        "video_url": "str",
+        "keyframes": "list[dict[str, object]]",
+        "mood": "str",
+        "vibe": "str",
+        "example": "str",
+        "instructions": "str",
+        "channel_profile_id": "str | None",
+        "source_prompt_found": "bool",
+        "turns": "list[dict[str, object]]",
+        "latest_variants": "list[dict[str, object]]"
+      }
+    },
+    {
+      "module": "krea2_assisted_web",
+      "serializer": "serialize_krea2_assisted_project",
+      "contract": "Krea2AssistedProjectPayload",
+      "fields": {
+        "id": "str",
+        "active_branch_id": "str",
+        "composition_base_asset_id": "str | None",
+        "local_inspiration_enabled": "bool",
+        "prompt_examples": "list[dict[str, object]]",
+        "selected_prompt_example_id": "str | None",
+        "prompt_example_search_brief": "dict[str, object] | None",
+        "branches": "list[dict[str, object]]",
+        "render_settings": "dict[str, object] | None",
+        "style_preset": "dict[str, object] | None",
+        "art_direction": "dict[str, object] | None",
+        "preset_pending": "bool",
+        "render_seed": "str | None",
+        "project_id": "str",
+        "name": "str",
+        "intention": "str",
+        "model_id": "str",
+        "assistance_recipe_version": "str",
+        "revision_model_id": "str | None",
+        "prompt_language": "str",
+        "reference_asset_id": "str | None",
+        "reference_filename": "str | None",
+        "reference_url": "str | None",
+        "turns": "list[dict[str, object]]",
+        "current_prompt": "str | None",
+        "attempts": "list[dict[str, object]]",
+        "feedback_attempt_id": "str | None",
+        "accepted_attempt_id": "str | None",
+        "recipe_draft": "dict[str, object] | None",
+        "published_recipe": "dict[str, object] | None",
+        "export": "dict[str, object]",
+        "warnings": "list[str]"
+      }
+    },
+    {
+      "module": "krea2_edit_web",
+      "serializer": "serialize_krea2_edit_source",
+      "contract": "Krea2EditSourcePayload",
+      "fields": {
+        "id": "str",
+        "source_id": "str",
+        "restart_count": "int",
+        "revision": "dict[str, object] | None",
+        "copied_from_source_id": "str | None",
+        "revision_activation": "int",
+        "resume_attempt_id": "str | None",
+        "source_asset_id": "str",
+        "source_url": "str",
+        "subject_reference": "dict[str, object] | None",
+        "filename": "str",
+        "project_id": "str | None",
+        "stage_index": "int",
+        "parent_source_id": "str | None",
+        "parent_attempt_id": "str | None",
+        "accepted_attempt_id": "str | None",
+        "project_name": "str | None",
+        "accepted_label": "str | None",
+        "export": "dict[str, object]",
+        "source_batch_id": "str | None",
+        "source_batch_item_id": "str | None",
+        "prompt_language": "str",
+        "state": "str",
+        "recipe": "dict[str, object]",
+        "metadata": "dict[str, object]",
+        "prompt_status": "str",
+        "instruction": "str",
+        "generated_prompt": "str | None",
+        "raw_prompt_response": "str | None",
+        "prompt_model_id": "str | None",
+        "prompt_error": "str | None",
+        "revisions": "list[dict[str, object]]",
+        "attempts": "list[dict[str, object]]"
+      }
+    },
+    {
+      "module": "prompt_lab_web",
+      "serializer": "serialize_prompt_session",
+      "contract": "PromptSessionPayload",
+      "fields": {
+        "id": "str",
+        "session_id": "str",
+        "model_id": "str",
+        "session_mode": "str",
+        "preparation": "dict[str, object]",
+        "cinematic_settings": "dict[str, object] | None",
+        "sensual_settings": "dict[str, object] | None",
+        "combat_settings": "dict[str, object] | None",
+        "profile": "dict[str, object]",
+        "brief_variant": "dict[str, object] | None",
+        "analysis_complete": "bool",
+        "interpretation_complete": "bool",
+        "brief_complete": "bool",
+        "brief_is_stale": "bool",
+        "active_brief_revision_id": "str | None",
+        "approved_brief_revision_id": "str | None",
+        "active_brief": "dict[str, object] | None",
+        "brief_revisions": "list[dict[str, object]]",
+        "references": "list[dict[str, object]]"
+      }
+    },
+    {
+      "module": "prompt_lab_web",
+      "serializer": "serialize_prompt_composition",
+      "contract": "PromptCompositionPayload",
+      "fields": {
+        "source_session_id": "str",
+        "writer_model_id": "str | None",
+        "supports_writer_model": "bool",
+        "combat_sequence": "dict[str, object] | None",
+        "cinematic_sequence": "dict[str, object] | None",
+        "sensual_sequence": "dict[str, object] | None",
+        "preparation_intent": "dict[str, object] | None",
+        "cookbook": "dict[str, object]",
+        "bindings": "dict[str, list[str]]",
+        "picture_mapping": "list[dict[str, object]]",
+        "prompt_variants": "list[dict[str, object]]",
+        "documents": "dict[str, object]"
+      }
+    }
+  ]
+}

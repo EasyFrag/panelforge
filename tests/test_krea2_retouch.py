@@ -18,7 +18,8 @@ from panelforge.application import ChangeViewRunner
 from panelforge.application.krea2_edit import Krea2EditService, RetouchConflictError
 from panelforge.domain.krea2_edit import Krea2EditAttempt, Krea2EditAttemptStatus as Status, Krea2EditMetadata, Krea2EditSettings
 from panelforge.domain.krea2_lab import Krea2AspectRatio
-from panelforge.features.lab.web import create_app, serialize_krea2_edit_source
+from panelforge.features.lab.web import create_app
+from panelforge.features.lab.krea2_edit_web import serialize_krea2_edit_source
 from panelforge.infrastructure.krea2_project_exports import LocalKrea2ProjectExporter
 from panelforge.infrastructure.krea2_retouch import PillowRetouchCompositor
 from panelforge.infrastructure.presets import ChangeViewPresetRecipe, load_change_view_preset, load_krea2_edit_workflow

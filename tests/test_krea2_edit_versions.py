@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from panelforge.application.krea2_edit import Krea2EditAttemptRequest, RetouchConflictError
 from panelforge.domain.krea2_edit import Krea2EditPromptRevision, Krea2EditPromptStatus
-from panelforge.features.lab.web import serialize_krea2_edit_source
+from panelforge.features.lab.krea2_edit_web import serialize_krea2_edit_source
 from panelforge.infrastructure.storage.krea2_edits import LocalKrea2EditStore
 from panelforge.infrastructure.storage import krea2_edits as storage
 from tests import test_krea2_retouch as fixtures

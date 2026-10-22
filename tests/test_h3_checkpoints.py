@@ -15,7 +15,8 @@ from panelforge.domain.h3_checkpoint import H3ModelLoading, validate_h3_checkpoi
 from panelforge.domain.h3_render import H3RenderAttempt, H3RenderAttemptStatus, H3RenderInputMode, H3RenderProject
 from panelforge.domain.h3_render import H3VideoLoraSelection
 from panelforge.domain.video_lab import VideoAspectRatio, VideoLabSettings
-from panelforge.features.lab.web import H3RenderAttemptBody, create_app, serialize_h3_render_project
+from panelforge.features.lab.h3_render_web import H3RenderAttemptBody, serialize_h3_render_project
+from panelforge.features.lab.web import create_app
 from panelforge.infrastructure.presets import (H3RenderPresetRecipe, Ref2VH3RenderPresetRecipe,
     VideoLabPresetRecipe, load_h3_render_workflow, load_video_lab_workflow)
 from panelforge.infrastructure.presets.h3_bunny import BunnyH3RenderRecipe

@@ -23,6 +23,24 @@ Un journal invalide reste en place et provoque une erreur explicite. Ce mécanis
 protège les nouvelles écritures ; il ne recherche pas d’anciens fichiers orphelins
 et ne coordonne pas plusieurs processus écrivant dans le même workspace.
 
+Le serveur HTTP est organisé par atelier dans `src/panelforge/features/lab/`.
+`web.py` assemble les routes, le middleware et le cycle de vie des services.
+Les modules `*_web.py` regroupent les routes, modèles de requêtes et réponses de
+leur atelier ; les autres ateliers déjà séparés conservent leur organisation.
+`media_http.py` porte la lecture des assets et la détection des médias reçus,
+`http_support.py` les conversions d’entrée et erreurs communes,
+`http_streaming.py` le transport SSE, et `render_events.py` les relais ComfyUI.
+Les dépendances de chaque routeur sont injectées explicitement par `create_app`.
+
+Huit réponses principales sont décrites par des `TypedDict` à côté de leurs
+sérialisateurs. Ces annotations ne filtrent pas les champs et ne convertissent pas
+les valeurs envoyées au navigateur. Les erreurs spécifiques, les champs optionnels
+des flux et les formats des historiques sont conservés. Les contrats HTTP d’avant
+refactoring sont enregistrés dans `tests/fixtures/lab-http-before-patch2.json`.
+Les tests ciblés sont `test_http_contracts.py` et `test_http_transports.py`, à lancer
+par l’utilisateur avec `python -m unittest discover -s tests -p "test_http_*.py"`.
+Les originaux restent dans `historique/2026-10-22-patch2-http/`.
+
 PanelForge est un atelier local pour construire un canon visuel cohérent, qualifier des recettes ComfyUI puis produire des panels narratifs à partir d’assets approuvés.
 
 Le projet reste un monolithe modulaire : ComfyUI sert à découvrir manuellement les workflows, tandis que PanelForge les exécute comme des recettes explicites, versionnées et traçables.

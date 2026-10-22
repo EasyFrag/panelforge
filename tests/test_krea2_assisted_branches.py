@@ -14,7 +14,7 @@ from panelforge.domain.krea2_assisted import (
     Krea2AssistedTurnMode as Mode, Krea2AssistedTurnRole as Role,
 )
 from panelforge.domain.krea2_batch import Krea2AspectRatio, Krea2BatchSettings, Krea2PromptLanguage
-from panelforge.features.lab.web import serialize_krea2_assisted_project
+from panelforge.features.lab.krea2_assisted_web import serialize_krea2_assisted_project
 from panelforge.infrastructure.storage import LocalAssetStore, LocalKrea2AssistedProjectStore
 from panelforge.infrastructure.storage.krea2_assisted import _serialize, _deserialize
 from tests.test_krea2_assisted import Gateway, PNG, PROMPT

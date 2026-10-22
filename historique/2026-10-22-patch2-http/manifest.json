@@ -1,0 +1,431 @@
+{
+  "kind": "http_refactoring",
+  "snapshot_commit": "8bf43a91ed63fb4d5807a1a11805fe532cc778f2",
+  "snapshot_branch": "snapshots/pre-patch2-2026-10-22",
+  "routes_removed": [],
+  "original_files": [
+    {
+      "path": "src/panelforge/features/lab/web.py",
+      "sha256": "ba9bdeb7ed27cc82dbfec2817edc28a26704389017582e56439edd8750396e5f"
+    },
+    {
+      "path": "tests/test_dance.py",
+      "sha256": "7cc220859284a521789663c7539abea4faab254957e65c061a5936c09aa2594c"
+    },
+    {
+      "path": "tests/test_episode_localization_web.py",
+      "sha256": "cd5b3bced0795ad9c5cd4cebd261feba7233c006e1c406e3ef68fc070acb25da"
+    },
+    {
+      "path": "tests/test_episodes_web.py",
+      "sha256": "7c90d792baa1b1c4174c87655a66da5d86be992d962880513651639201be5088"
+    },
+    {
+      "path": "tests/test_firered_edit.py",
+      "sha256": "571ac7628eb59d5872ecbee5072bffea2af26fc49b058cc7d593ca37f2eebe79"
+    },
+    {
+      "path": "tests/test_h3_bunny.py",
+      "sha256": "05ddbcca36dc61a16c7a48e7fbba7df130dce183b7c66e721bc60c07af78c93e"
+    },
+    {
+      "path": "tests/test_h3_checkpoints.py",
+      "sha256": "c3c17b22de8a35ca268700d30ca898e11901f35a341c3b8f0d0c5da4577500ce"
+    },
+    {
+      "path": "tests/test_h3_four_loras.py",
+      "sha256": "34ef6aa89bb564886b8c2c37fad340e3f01a37a62b59f588f22472332b9a401d"
+    },
+    {
+      "path": "tests/test_h3_multiple_loras.py",
+      "sha256": "4c1752ede01bfe3387cc58fcec0447f0e146e8c04a0716a1287f768a3acf6c98"
+    },
+    {
+      "path": "tests/test_h3_render.py",
+      "sha256": "7f061adf52cfd1eecec69eb12cf44c9a5b95374228ec7530527b05449f8f2351"
+    },
+    {
+      "path": "tests/test_krea2_assisted_branches.py",
+      "sha256": "a7a64b03b87432b91239130988d913648c6cfa8eb0a22c0f0f73d4d3b04c1b28"
+    },
+    {
+      "path": "tests/test_krea2_crop.py",
+      "sha256": "070f8994ee607f180a9676a5df5fd003983322d7f836642f9710c6c6d0e462ae"
+    },
+    {
+      "path": "tests/test_krea2_edit_assistance_v3.py",
+      "sha256": "c4ffb4ce97d80a7fbc6f866c88046d29342ac8d26019e538573b5412354ac3b3"
+    },
+    {
+      "path": "tests/test_krea2_edit_versions.py",
+      "sha256": "aac7ee1a44cb0550c68d83ca4db0bee3e13c9287b60eeb4791bb4f98102edcf4"
+    },
+    {
+      "path": "tests/test_krea2_edit_workflows.py",
+      "sha256": "ea3b543b5461b688461c0536d63436722eda7343d1984ec37b545ba77011660d"
+    },
+    {
+      "path": "tests/test_krea2_edit_workshop.py",
+      "sha256": "93329be19df79632d7509c9ff11db8ab8aa206cd693bd95a4effa014d30d3f3a"
+    },
+    {
+      "path": "tests/test_krea2_restaging.py",
+      "sha256": "3b2b2f0e8ba5334c3083553a6195318a2359a10110c5d6a197881af099bd3a0a"
+    },
+    {
+      "path": "tests/test_krea2_retouch.py",
+      "sha256": "742992e7bf69adf708d35691eb0c8f948a888bba8455793f9f3a51f60f5a45f6"
+    },
+    {
+      "path": "tests/test_krea2_upscale.py",
+      "sha256": "5a700faa31edec30448c3c365123d441df56230a6489077ac15787b61e0458f6"
+    },
+    {
+      "path": "tests/test_ref2v_render_resolution.py",
+      "sha256": "616d5051a11bc59c805284b111220ab2aa1682929aac82d7899bde7385092d42"
+    }
+  ],
+  "ownership": {
+    "definitions": {
+      "create_app": "web",
+      "_STATIC_DIRECTORY": "web",
+      "_RenderProgressTracker": "render_events",
+      "_report_machine_render_progress": "render_events",
+      "_connect_video_preview": "render_events",
+      "_relay_video_preview": "render_events",
+      "_relay_runtime_monitor": "render_events",
+      "_serialize_llm_model": "http_support",
+      "_parse_seed": "http_support",
+      "_parse_json_seed": "http_support",
+      "_encode_sse": "http_streaming",
+      "MAX_IMAGE_BYTES": "media_http",
+      "MAX_SOCIAL_VIDEO_BYTES": "media_http",
+      "_close_uploads": "media_http",
+      "_parse_byte_range": "media_http",
+      "detect_image_media_type": "media_http",
+      "detect_video_media_type": "media_http",
+      "WorkSchedulerThermalBody": "runtime_web",
+      "WorkSchedulerSettingsBody": "runtime_web",
+      "_comfy_active_operations": "runtime_web",
+      "_active_llm_calls": "runtime_web",
+      "_llm_activity_label": "runtime_web",
+      "_runtime_status": "runtime_web",
+      "PreviewBody": "change_view_web",
+      "ReviewBody": "change_view_web",
+      "_AZIMUTH_LABELS": "change_view_web",
+      "_ELEVATION_LABELS": "change_view_web",
+      "_SHOT_SIZE_LABELS": "change_view_web",
+      "_choice_options": "change_view_web",
+      "serialize_run": "change_view_web",
+      "_get_run_or_404": "change_view_web",
+      "SocialProfileBody": "social_lab_web",
+      "SocialChatBody": "social_lab_web",
+      "serialize_social_profile": "social_lab_web",
+      "serialize_social_project": "social_lab_web",
+      "_require_social_lab": "social_lab_web",
+      "_social_lab_stream_response": "social_lab_web",
+      "Krea2LoraBody": "krea2_resources_web",
+      "Krea2ResourcePreferenceBody": "krea2_resources_web",
+      "_krea2_prompt_language": "krea2_resources_web",
+      "_require_krea2_resources": "krea2_resources_web",
+      "_krea2_assisted_settings": "krea2_assisted_web",
+      "serialize_krea2_visual_recipe": "krea2_assisted_web",
+      "_serialize_krea2_style_preset": "krea2_assisted_web",
+      "_serialize_krea2_art_direction": "krea2_assisted_web",
+      "serialize_krea2_assisted_project": "krea2_assisted_web",
+      "_serialize_krea2_assisted_settings": "krea2_assisted_web",
+      "_require_krea2_assisted": "krea2_assisted_web",
+      "_krea2_assisted_stream_response": "krea2_assisted_web",
+      "_serialize_edit_settings": "krea2_edit_web",
+      "_serialize_edit_dimensions": "krea2_edit_web",
+      "serialize_krea2_edit_source": "krea2_edit_web",
+      "_require_krea2_edit": "krea2_edit_web",
+      "_krea2_edit_stream_response": "krea2_edit_web",
+      "serialize_h3_render_project": "h3_render_web",
+      "_require_h3_render": "h3_render_web",
+      "_h3_render_stream_response": "h3_render_web",
+      "MAX_PROMPT_REFERENCES": "prompt_lab_web",
+      "serialize_prompt_session": "prompt_lab_web",
+      "serialize_prompt_composition": "prompt_lab_web",
+      "_require_prompt_lab": "prompt_lab_web",
+      "_require_prompt_composition": "prompt_lab_web",
+      "_prompt_action": "prompt_lab_web",
+      "_prompt_stream_response": "prompt_lab_web",
+      "_composition_action": "prompt_lab_web",
+      "_composition_stream_response": "prompt_lab_web",
+      "_composition_stream_action": "prompt_lab_web",
+      "_parse_composition_stage": "prompt_lab_web",
+      "_parse_reference_uses": "prompt_lab_web",
+      "_combat_settings_value": "prompt_lab_web",
+      "_combat_sequence_summary": "prompt_lab_web",
+      "_cinematic_settings_value": "prompt_lab_web",
+      "_sensual_settings_value": "prompt_lab_web",
+      "_classic_sequence_summary": "prompt_lab_web",
+      "_sensual_sequence_summary": "prompt_lab_web",
+      "PromptEditBody": "prompt_lab_web",
+      "PromptRevisionBody": "prompt_lab_web",
+      "CreativeAxesBody": "prompt_lab_web",
+      "BriefStructureBody": "prompt_lab_web",
+      "PromptSessionForkBody": "prompt_lab_web",
+      "BriefVariantBody": "prompt_lab_web",
+      "CompositionConfigureBody": "prompt_lab_web",
+      "CompositionWriterModelBody": "prompt_lab_web",
+      "ChinesePromptVariantBody": "prompt_lab_web",
+      "PlanArbitrationBody": "prompt_lab_web",
+      "SuperFastRef2VBody": "prompt_lab_web",
+      "Krea2EditPromptBody": "krea2_edit_web",
+      "Krea2EditAttemptBody": "krea2_edit_web",
+      "Krea2EditSourceStateBody": "krea2_edit_web",
+      "Krea2EditUpscaleBody": "krea2_edit_web",
+      "Krea2EditResumeBody": "krea2_edit_web",
+      "Krea2EditRestartBody": "krea2_edit_web",
+      "Krea2EditPromotionBody": "krea2_edit_web",
+      "Krea2EditCropBody": "krea2_edit_web",
+      "Krea2RestageBody": "krea2_assisted_web",
+      "Krea2AssistedChatBody": "krea2_assisted_web",
+      "Krea2AssistedAttemptBody": "krea2_assisted_web",
+      "Krea2AssistedBranchBody": "krea2_assisted_web",
+      "Krea2StylePresetSaveBody": "krea2_assisted_web",
+      "Krea2StylePresetUpdateBody": "krea2_assisted_web",
+      "Krea2StylePresetDeleteBody": "krea2_assisted_web",
+      "Krea2StylePresetApplyBody": "krea2_assisted_web",
+      "Krea2ArtDirectionApplyBody": "krea2_assisted_web",
+      "Krea2AssistedFeedbackBody": "krea2_assisted_web",
+      "Krea2AssistedPromptExampleBody": "krea2_assisted_web",
+      "Krea2AssistedExpectedBranchBody": "krea2_assisted_web",
+      "Krea2AssistedLocalInspirationBody": "krea2_assisted_web",
+      "Krea2AssistedRecipeDraftBody": "krea2_assisted_web",
+      "Krea2AssistedRecipePublishBody": "krea2_assisted_web",
+      "H3RenderChatBody": "h3_render_web",
+      "H3VideoLoraBody": "h3_render_web",
+      "H3BunnyBody": "h3_render_web",
+      "H3VideoLoraSlotBody": "h3_render_web",
+      "H3VideoLoraStackBody": "h3_render_web",
+      "H3RenderAttemptBody": "h3_render_web",
+      "H3RenderFeedbackBody": "h3_render_web",
+      "H3Ref2VConversionBody": "h3_render_web",
+      "runtime_router": "runtime_web",
+      "change_view_router": "change_view_web",
+      "media_router": "media_http",
+      "social_lab_router": "social_lab_web",
+      "krea2_resources_router": "krea2_resources_web",
+      "krea2_assisted_router": "krea2_assisted_web",
+      "krea2_edit_router": "krea2_edit_web",
+      "h3_render_router": "h3_render_web",
+      "prompt_lab_router": "prompt_lab_web"
+    },
+    "routes": {
+      "index": "web",
+      "instance_identity": "web",
+      "network_configuration": "web",
+      "unload_model_runtime": "runtime_web",
+      "runtime_status": "runtime_web",
+      "work_scheduler_status": "runtime_web",
+      "work_scheduler_thermal_history": "runtime_web",
+      "work_scheduler_settings": "runtime_web",
+      "update_work_scheduler_settings": "runtime_web",
+      "pause_work_scheduler": "runtime_web",
+      "resume_work_scheduler": "runtime_web",
+      "free_comfy_runtime": "runtime_web",
+      "runtime_events": "runtime_web",
+      "change_view_spec": "change_view_web",
+      "preview_prompt": "change_view_web",
+      "create_run": "change_view_web",
+      "list_runs": "change_view_web",
+      "get_run": "change_view_web",
+      "review_run": "change_view_web",
+      "reuse_run": "change_view_web",
+      "asset_content": "media_http",
+      "social_lab_spec": "social_lab_web",
+      "list_social_profiles": "social_lab_web",
+      "create_social_profile": "social_lab_web",
+      "update_social_profile": "social_lab_web",
+      "create_social_project": "social_lab_web",
+      "list_social_projects": "social_lab_web",
+      "get_social_project": "social_lab_web",
+      "stream_social_chat": "social_lab_web",
+      "krea2_resource_detail": "krea2_resources_web",
+      "update_krea2_resource_preference": "krea2_resources_web",
+      "refresh_krea2_resource": "krea2_resources_web",
+      "krea2_assisted_spec": "krea2_assisted_web",
+      "create_krea2_assisted_project": "krea2_assisted_web",
+      "list_krea2_style_presets": "krea2_assisted_web",
+      "list_krea2_art_styles": "krea2_assisted_web",
+      "install_krea2_art_styles": "krea2_assisted_web",
+      "get_krea2_art_style_thumbnail": "krea2_assisted_web",
+      "index_krea2_prompt_library": "krea2_assisted_web",
+      "save_krea2_style_preset": "krea2_assisted_web",
+      "update_krea2_style_preset": "krea2_assisted_web",
+      "delete_krea2_style_preset": "krea2_assisted_web",
+      "apply_krea2_style_preset": "krea2_assisted_web",
+      "apply_krea2_art_direction": "krea2_assisted_web",
+      "list_krea2_assisted_projects": "krea2_assisted_web",
+      "get_krea2_assisted_project": "krea2_assisted_web",
+      "select_krea2_prompt_example": "krea2_assisted_web",
+      "set_krea2_local_inspiration": "krea2_assisted_web",
+      "recompile_krea2_prompt_example": "krea2_assisted_web",
+      "get_krea2_wildcard_preview": "krea2_assisted_web",
+      "upload_krea2_assisted_guidance": "krea2_assisted_web",
+      "stream_krea2_assisted_chat": "krea2_assisted_web",
+      "krea2_assisted_render_queue": "krea2_assisted_web",
+      "prepare_krea2_assisted_attempt": "krea2_assisted_web",
+      "start_krea2_assisted_attempt": "krea2_assisted_web",
+      "cancel_krea2_assisted_attempt": "krea2_assisted_web",
+      "change_krea2_assisted_branch": "krea2_assisted_web",
+      "select_krea2_assisted_feedback": "krea2_assisted_web",
+      "save_krea2_assisted_image": "krea2_assisted_web",
+      "update_krea2_assisted_recipe_draft": "krea2_assisted_web",
+      "publish_krea2_assisted_recipe": "krea2_assisted_web",
+      "krea2_edit_spec": "krea2_edit_web",
+      "list_krea2_edit_upscalers": "krea2_edit_web",
+      "upscale_krea2_edit_attempt": "krea2_edit_web",
+      "create_krea2_edit_source": "krea2_edit_web",
+      "list_krea2_edit_sources": "krea2_edit_web",
+      "get_krea2_edit_source": "krea2_edit_web",
+      "get_krea2_edit_project": "krea2_edit_web",
+      "resume_krea2_edit_stage": "krea2_edit_web",
+      "restart_krea2_edit_stage": "krea2_edit_web",
+      "stream_krea2_edit_prompt": "krea2_edit_web",
+      "prepare_krea2_edit_attempt": "krea2_edit_web",
+      "start_krea2_edit_attempt": "krea2_edit_web",
+      "cancel_krea2_edit_attempt": "krea2_edit_web",
+      "promote_krea2_edit_attempt": "krea2_edit_web",
+      "crop_krea2_edit_source": "krea2_edit_web",
+      "upload_assisted_scene": "krea2_assisted_web",
+      "restage_assisted_image": "krea2_assisted_web",
+      "prepare_krea2_edit_retouch": "krea2_edit_web",
+      "save_krea2_edit_retouch": "krea2_edit_web",
+      "retry_krea2_edit_project_export": "krea2_edit_web",
+      "update_krea2_edit_source_state": "krea2_edit_web",
+      "h3_render_video_loras": "h3_render_web",
+      "h3_lora_resource": "h3_render_web",
+      "update_h3_lora_resource": "h3_render_web",
+      "refresh_h3_lora_resource": "h3_render_web",
+      "h3_render_checkpoints": "h3_render_web",
+      "h3_render_spec": "h3_render_web",
+      "create_h3_render_project": "h3_render_web",
+      "get_h3_render_project": "h3_render_web",
+      "list_h3_adaptations": "h3_render_web",
+      "upload_h3_adaptation_reference": "h3_render_web",
+      "prepare_h3_adaptation": "h3_render_web",
+      "stream_h3_adaptation": "h3_render_web",
+      "stream_h3_render_chat": "h3_render_web",
+      "prepare_h3_render_attempt": "h3_render_web",
+      "start_h3_render_attempt": "h3_render_web",
+      "cancel_h3_render_attempt": "h3_render_web",
+      "resume_h3_render_attempt": "h3_render_web",
+      "select_h3_render_feedback": "h3_render_web",
+      "h3_render_events": "h3_render_web",
+      "prompt_lab_spec": "prompt_lab_web",
+      "prompt_lab_models": "prompt_lab_web",
+      "create_prompt_lab_session": "prompt_lab_web",
+      "list_prompt_lab_sessions": "prompt_lab_web",
+      "get_prompt_lab_session": "prompt_lab_web",
+      "fork_prompt_lab_session": "prompt_lab_web",
+      "configure_prompt_brief_variant": "prompt_lab_web",
+      "structure_prompt_brief": "prompt_lab_web",
+      "stream_prompt_brief": "prompt_lab_web",
+      "edit_prompt_brief": "prompt_lab_web",
+      "revise_prompt_brief": "prompt_lab_web",
+      "stream_prompt_brief_revision": "prompt_lab_web",
+      "approve_prompt_brief": "prompt_lab_web",
+      "list_prompt_cookbooks": "prompt_lab_web",
+      "get_prompt_composition": "prompt_lab_web",
+      "configure_prompt_composition": "prompt_lab_web",
+      "set_composition_writer_model": "prompt_lab_web",
+      "stream_chinese_prompt_variant": "prompt_lab_web",
+      "stream_super_fast_ref2v": "prompt_lab_web",
+      "stream_composition_generation": "prompt_lab_web",
+      "stream_action_plan_reconciliation": "prompt_lab_web",
+      "edit_composition_stage": "prompt_lab_web",
+      "stream_composition_revision": "prompt_lab_web",
+      "approve_composition_stage": "prompt_lab_web",
+      "require_h3_lora_resources": "h3_render_web"
+    },
+    "factories": {
+      "runtime_web": [
+        "runtime_router",
+        [
+          "comfy_runtime",
+          "h3_render",
+          "llm_activity_monitor",
+          "local_gpu_monitor",
+          "machine_work",
+          "model_runtime",
+          "runtime_monitor_connector"
+        ]
+      ],
+      "change_view_web": [
+        "change_view_router",
+        [
+          "runner"
+        ]
+      ],
+      "media_http": [
+        "media_router",
+        [
+          "runner"
+        ]
+      ],
+      "social_lab_web": [
+        "social_lab_router",
+        [
+          "social_lab"
+        ]
+      ],
+      "krea2_resources_web": [
+        "krea2_resources_router",
+        [
+          "krea2_resources"
+        ]
+      ],
+      "krea2_assisted_web": [
+        "krea2_assisted_router",
+        [
+          "image_catalogs",
+          "krea2_assisted",
+          "krea2_edit",
+          "runner"
+        ]
+      ],
+      "krea2_edit_web": [
+        "krea2_edit_router",
+        [
+          "image_catalogs",
+          "krea2_edit",
+          "krea2_resources",
+          "runner"
+        ]
+      ],
+      "h3_render_web": [
+        "h3_render_router",
+        [
+          "h3_conversion",
+          "h3_lora_resources",
+          "h3_render",
+          "machine_work",
+          "video_preview_connector"
+        ]
+      ],
+      "prompt_lab_web": [
+        "prompt_lab_router",
+        [
+          "prompt_composition",
+          "prompt_lab"
+        ]
+      ]
+    }
+  },
+  "application_before": {
+    "lines": 5394,
+    "nonblank_lines": 4993,
+    "bytes_utf8_lf": 231526
+  },
+  "application_after": {
+    "lines": 5331,
+    "nonblank_lines": 4840,
+    "bytes_utf8_lf": 229917
+  },
+  "tests_executed": false,
+  "note": "Historical sources only; never imported or served. Original tests are excluded from active discovery."
+}

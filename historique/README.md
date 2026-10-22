@@ -1,6 +1,18 @@
-# Historique des fonctionnalités retirées
+# Historique du projet
 
-Ces sources documentent les ateliers qui ne sont plus accessibles depuis les menus.
+## Refactoring HTTP du 22 octobre 2026
+
+Le dossier [2026-10-22-patch2-http](2026-10-22-patch2-http/manifest.json) conserve
+`web.py` complet avant séparation et les versions initiales des tests dont les
+imports ont été adaptés. Aucune route n’a été retirée dans ce lot. Le manifeste
+indique le commit de sauvegarde GitHub, les empreintes et le module propriétaire
+de chaque définition et route. Les transports HTTP répétés sont mutualisés dans
+le code actif ; leurs anciennes versions restent consultables dans l’original.
+
+Ces archives ne sont pas importées. Les tests actifs se trouvent toujours sous
+`tests/` ; ne pas lancer les anciennes copies comme une seconde suite.
+
+Ces sources conservent les ateliers retirés des menus et les versions antérieures aux refactorings.
 Elles ne sont ni importées, ni servies par HTTP, ni découvertes par les tests de `tests/`.
 Le packaging Python reste limité à `src/`. Le fichier `.ignore` les exclut des recherches
 ordinaires avec `rg` ; utiliser `rg --no-ignore historique/` pour les consulter.

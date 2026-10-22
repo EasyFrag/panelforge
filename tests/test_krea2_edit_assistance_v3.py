@@ -11,7 +11,7 @@ from panelforge.application import krea2_edit_assistance as v2, krea2_edit_assis
 from panelforge.application.krea2_edit import _PROMPT_SYSTEM
 from panelforge.domain import Krea2EditMetadata, Krea2EditSettings, Krea2AspectRatio
 from panelforge.domain.krea2_batch import Krea2PromptLanguage
-from panelforge.features.lab.web import serialize_krea2_edit_source
+from panelforge.features.lab.krea2_edit_web import serialize_krea2_edit_source
 from panelforge.infrastructure.presets import load_krea2_edit_workflow
 from panelforge.infrastructure.storage import LocalAssetStore, LocalKrea2EditStore
 from panelforge.infrastructure.storage.krea2_edits import _to_dict, _from_dict

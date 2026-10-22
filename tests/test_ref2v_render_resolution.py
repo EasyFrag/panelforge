@@ -7,7 +7,7 @@ import unittest
 
 from panelforge.application import H3RenderService
 from panelforge.domain import H3RenderInputMode, H3RenderAttemptStatus, H3RenderProject, VideoAspectRatio, VideoLabSettings
-from panelforge.features.lab.web import H3RenderAttemptBody, serialize_h3_render_project
+from panelforge.features.lab.h3_render_web import H3RenderAttemptBody, serialize_h3_render_project
 from panelforge.infrastructure.presets import H3RenderPresetRecipe, Ref2VH3RenderPresetRecipe, VideoLabPresetRecipe, load_h3_render_workflow, load_video_lab_workflow
 from panelforge.infrastructure.storage import LocalAssetStore, LocalH3RenderProjectStore
 from tests.test_h3_render import CompletedGateway, ImmediateH3Comfy, PNG, RESOLUTION_WORKFLOW_DIRECTORY

@@ -725,7 +725,7 @@ class H3RenderRevisionVersionTest(unittest.TestCase):
 
     def test_initial_resolution_survives_prepare_compile_storage_and_feedback_metadata(self) -> None:
         from panelforge.application.h3_render import _attempt_context
-        from panelforge.features.lab.web import serialize_h3_render_project
+        from panelforge.features.lab.h3_render_web import serialize_h3_render_project
         with tempfile.TemporaryDirectory() as directory:
             service, gateway = self.service(directory, "{}")
             service.workflow = H3RenderPresetRecipe(load_h3_render_workflow(RESOLUTION_WORKFLOW_DIRECTORY))

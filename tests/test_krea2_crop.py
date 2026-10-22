@@ -12,7 +12,7 @@ from PIL import Image, ImageOps
 
 from panelforge.application.krea2_edit import Krea2EditService, RetouchConflictError
 from panelforge.domain.krea2_edit import Krea2EditCrop, Krea2EditMetadata, Krea2EditPromptStatus
-from panelforge.features.lab.web import serialize_krea2_edit_source
+from panelforge.features.lab.krea2_edit_web import serialize_krea2_edit_source
 from panelforge.infrastructure.edit_images import PillowEditImages
 from panelforge.infrastructure.krea2_project_exports import LocalKrea2ProjectExporter
 from panelforge.infrastructure.presets import load_krea2_edit_workflow

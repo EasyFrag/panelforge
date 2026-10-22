@@ -10,7 +10,8 @@ from panelforge.application.episodes import EpisodeConflict
 from panelforge.domain.krea2_sampling import Krea2AssistedSampling
 from panelforge.domain.krea2_assisted_workflows import KREA2_FLUX_KLEIN_WORKFLOW
 from panelforge.features.lab.episodes_web import episodes_router
-from panelforge.features.lab.web import Krea2AssistedAttemptBody, H3RenderAttemptBody
+from panelforge.features.lab.krea2_assisted_web import Krea2AssistedAttemptBody
+from panelforge.features.lab.h3_render_web import H3RenderAttemptBody
 
 
 class EpisodeWebTest(unittest.TestCase):
