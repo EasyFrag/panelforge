@@ -12,7 +12,7 @@ from panelforge.domain.factory_cycle import admit_cycle, bootstrap_cycle, sync_c
 import time
 
 from panelforge.domain.video_factory import (
-    STAGES, PRESETS, configuration, fingerprint, initial_steps, invalidate, merge_settings,
+    STAGES, PRESETS, PRESET_LABELS, configuration, fingerprint, initial_steps, invalidate, merge_settings,
     new_item, next_steps, readiness, settle, timestamp, validate_shape, apply_preset,
 )
 
@@ -114,7 +114,8 @@ class VideoFactoryService:
                     "Machine en pause" if machine.get("paused") else
                     "Machine indisponible · vérifier le moniteur" if machine.get("state") == "unavailable" else
                     "Attend la machine locale" if lane == "local_gpu" else "Attend le serveur")
-        result.update(presets=PRESETS, thanks_languages=THANKS_LANGUAGES, machines=machines, scheduler_error=self._scheduler_error)
+        result.update(presets=PRESETS, preset_labels=PRESET_LABELS, thanks_languages=THANKS_LANGUAGES,
+                      machines=machines, scheduler_error=self._scheduler_error)
         if self.monitoring:
             result["monitoring"] = self._monitoring_snapshot(result)
         return result

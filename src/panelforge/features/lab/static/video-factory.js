@@ -30,6 +30,7 @@
   }
   const api = (path,method="GET",body) => core.request("/api/video-factory" + path, {method,...(body===undefined?{}:{headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})});
   const current = () => state.data?.items.find(item=>item.id===state.focus);
+  const presetLabel = key => state.data.preset_labels?.[key] || state.data.presets[key] || key;
   const group = item => item.source.kind === "episode" ? item.source.id : "";
   const tab = item => item.remove_requested ? "production" : item.archived_at ? "archives" : item.status === "preparation" ? "preparation" : ["queued","active"].includes(item.status) ? "production" : "results";
   const errors = item => Object.values(item.steps).some(step=>step.status==="failed") || item.delivery?.status==="failed";
@@ -215,7 +216,7 @@
       const image=item.config.references[0];
       const stateLabel=item.remove_requested?"Suppression en cours":item.archived_at?"Archivé":item.cancel_requested&&item.status==="active"?"Annulation demandée":item.status==="preparation"?(item.ready?"Prêt":"À compléter"):({queued:"En attente",active:"En cours",succeeded:"Terminé",failed:"En erreur",cancelled:"Annulé"}[item.status]);
       const reason=item.status==="preparation"?item.issues.join(" "):item.waiting_reason || (errors(item)?"Une étape est à reprendre":"");
-      return header+'<tr data-vf-id="'+item.id+'" class="'+rowClasses+'"><td><label class="vf-select"><input type="checkbox" data-vf-select '+(state.selected.has(item.id)?"checked":"")+' aria-label="Sélectionner '+escape(item.name)+'"><span>'+String(state.data.items.indexOf(item)+1).padStart(2,"0")+'</span></label></td><td><div class="vf-video-title">'+(image?imagePreview(image,item.name):"")+'<div><button type="button" data-vf-open>'+titleMarkup(item)+'</button><small>'+escape(state.data.presets[item.config.preset])+' · '+escape(item.config.mode.toUpperCase())+(item.source.kind==="episode"?" · scène "+(item.source.index+1):"")+'</small></div></div></td>'+
+      return header+'<tr data-vf-id="'+item.id+'" class="'+rowClasses+'"><td><label class="vf-select"><input type="checkbox" data-vf-select '+(state.selected.has(item.id)?"checked":"")+' aria-label="Sélectionner '+escape(item.name)+'"><span>'+String(state.data.items.indexOf(item)+1).padStart(2,"0")+'</span></label></td><td><div class="vf-video-title">'+(image?imagePreview(image,item.name):"")+'<div><button type="button" data-vf-open>'+titleMarkup(item)+'</button><small>'+escape(presetLabel(item.config.preset))+' · '+escape(item.config.mode.toUpperCase())+(item.source.kind==="episode"?" · scène "+(item.source.index+1):"")+'</small></div></div></td>'+
         stages.map(key=>'<td><button type="button" data-vf-stage="'+key+'" class="vf-stage '+item.steps[key].status+'" title="'+escape(labels[key]+" · "+(item.steps[key].message||item.steps[key].error||stageLabel(item,key)))+'">'+escape(stageLabel(item,key))+'</button>'+durationMarkup(item,key)+'</td>').join("")+
         '<td class="vf-state">'+stateCell(item,stateLabel,reason)+'</td></tr>'+spacer;
     }).join("");
@@ -359,8 +360,11 @@
       (item.archived_at?'<button type="button" data-vf-action="restore">Restaurer dans Résultats</button>':archiveButton(item,'data-vf-action="archive"'))+
       (canRetry(item)?'<button type="button" data-vf-action="retry">Reprendre la chaîne</button>':"")+
       (item.source.kind==="episode"&&item.status==="preparation"?'<button type="button" data-vf-refresh-source>Recharger depuis l’histoire</button>':"")+'</div>'+
-      '<section>'+field("Nom","name")+'<label>Preset<select id="vf-item-preset" '+disabled+'>'+Object.entries(state.data.presets).map(([key,label])=>'<option value="'+key+'" '+(key===config.preset?"selected":"")+">"+escape(label)+"</option>").join("")+'</select></label>'+
-      (config.preset==="custom"&&config.preset_origin?'<small class="vf-source">Basé sur '+escape(state.data.presets[config.preset_origin])+"</small>":"")+'</section>'+
+      '<section>'+field("Nom","name")+'<label>Preset<select id="vf-item-preset" '+disabled+'>'+
+      (state.data.presets[config.preset]?"":'<option value="'+escape(config.preset)+'" selected disabled>'+escape(presetLabel(config.preset))+'</option>')+
+      Object.entries(state.data.presets).map(([key,label])=>'<option value="'+key+'" '+(key===config.preset?"selected":"")+">"+escape(label)+"</option>").join("")+'</select></label>'+
+      (config.preset==="custom"&&config.preset_origin?'<small class="vf-source">Basé sur '+escape(presetLabel(config.preset_origin))+"</small>":"")+
+      ((config.preset_origin||config.preset)==="auto"?'<p class="vf-source">Au lancement, le LLM analyse l’image et choisit une suite en préservant son univers visuel. Tu peux préciser l’intention avant de lancer.</p>':"")+'</section>'+
       '<section><h3>Images et rôles</h3>'+config.references.map((ref,index)=>'<div class="vf-reference">'+imagePreview(ref,ref.label)+'<div><small>'+escape(ref.label||"Image")+'</small><select data-vf-role="'+index+'" '+disabled+' aria-label="Rôle de '+escape(ref.label||"l’image")+'">'+Object.entries(roles).filter(([key])=>config.mode==="ref2v"||["unassigned","first_frame","last_frame",ref.role].includes(key)).map(([key,label])=>'<option value="'+key+'" '+(ref.role===key?"selected":"")+">"+label+"</option>").join("")+'</select></div><button type="button" data-vf-remove-ref="'+index+'" aria-label="Retirer cette image" '+disabled+'>×</button></div>').join("")+
       '<label>Associer une image<input id="vf-add-reference" type="file" accept="image/png,image/jpeg,image/webp" multiple '+disabled+'></label></section>'+
       '<section><div class="vf-fields"><label>Mode<select data-vf-field="mode" '+disabled+'><option value="h3" '+(config.mode==="h3"?"selected":"")+'>H3 / FL2V</option><option value="ref2v" '+(config.mode==="ref2v"?"selected":"")+'>REF2V</option></select></label><label>Nombre de plans<select data-vf-field="shot_count" '+disabled+'><option value="auto">Auto</option>'+[1,2,3,4,5,6].map(n=>'<option '+(config.shot_count===n?"selected":"")+">"+n+"</option>").join("")+'</select></label></div>'+

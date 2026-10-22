@@ -13,6 +13,7 @@ import re
 import tempfile
 from threading import RLock
 from typing import Any
+from panelforge.application.image_timings import phase, timed, timed_lock
 from panelforge.domain.assisted_composition import AssistedComposition
 
 from panelforge.domain.krea2_assisted import (
@@ -49,41 +50,54 @@ class LocalKrea2AssistedProjectStore:
         self._root.mkdir(parents=True, exist_ok=True)
         self._lock = RLock()
 
+    @timed("projects.create", aggregate=True, cpu=True)
     def create(self, project: Krea2AssistedProject) -> Krea2AssistedProject:
-        with self._lock:
+        with timed_lock(self._lock, "projects.create", aggregate=True):
             directory = self._directory(project.project_id)
             directory.mkdir(exist_ok=False)
             _atomic_write(directory / "project.json", _json_bytes(_serialize(project)))
         return project
 
+    @timed("projects.save", aggregate=True, cpu=True)
     def save(self, project: Krea2AssistedProject) -> Krea2AssistedProject:
-        with self._lock:
+        with timed_lock(self._lock, "projects.save", aggregate=True):
             path = self._directory(project.project_id) / "project.json"
             if not path.is_file():
                 raise FileNotFoundError(project.project_id)
             _atomic_write(path, _json_bytes(_serialize(project)))
         return project
 
+    @timed("projects.get", aggregate=True, cpu=True)
     def get(self, project_id: str) -> Krea2AssistedProject:
-        with self._lock:
+        with timed_lock(self._lock, "projects.get", aggregate=True):
             path = self._directory(project_id) / "project.json"
             if not path.is_file() or path.is_symlink():
                 raise FileNotFoundError(project_id)
-            return _deserialize(json.loads(path.read_text(encoding="utf-8")))
+            return _read_project(path)
 
+    @timed("projects.list", aggregate=True, cpu=True)
     def list(self, limit: int = 30) -> list[Krea2AssistedProject]:
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
             raise ValueError("limit must be a non-negative integer")
         values: list[tuple[int, str, Path]] = []
-        with self._lock:
-            for directory in self._root.iterdir():
-                path = directory / "project.json"
-                if directory.is_dir() and not directory.is_symlink() and path.is_file():
-                    values.append((path.stat().st_mtime_ns, directory.name, path))
-            values.sort(reverse=True)
+        with timed_lock(self._lock, "projects.list", aggregate=True):
+            with phase("projects.list.enumerate", aggregate=True, cpu=True) as metrics:
+                metrics["entries"] = 0
+                for directory in self._root.iterdir():
+                    metrics["entries"] += 1
+                    path = directory / "project.json"
+                    if directory.is_dir() and not directory.is_symlink() and path.is_file():
+                        values.append((path.stat().st_mtime_ns, directory.name, path))
+                metrics["projects"] = len(values)
+            with phase("projects.list.sort", aggregate=True, cpu=True):
+                values.sort(reverse=True)
             # Listing recent workshops must not deserialize every archived conversation.
-            return [_deserialize(json.loads(path.read_text(encoding="utf-8"))) for _, _, path in values[:limit]]
+            with phase("projects.list.load", aggregate=True, cpu=True) as metrics:
+                result = [_read_project(path) for _, _, path in values[:limit]]
+                metrics["projects"] = len(result)
+                return result
 
+    @timed("projects.workflow", aggregate=True, cpu=True)
     def save_compiled_workflow(
         self,
         project_id: str,
@@ -111,6 +125,17 @@ class LocalKrea2AssistedProjectStore:
         return candidate
 
 
+def _read_project(path: Path) -> Krea2AssistedProject:
+    # Aggregate per-file samples; a large history must not grow the trace.
+    with phase("projects.read", aggregate=True, cpu=True):
+        content = path.read_text(encoding="utf-8")
+    with phase("projects.decode", aggregate=True, cpu=True) as metrics:
+        project = _deserialize(json.loads(content))
+        metrics["projects"] = 1
+        return project
+
+
+@timed("projects.serialize", aggregate=True, cpu=True)
 def _serialize(project: Krea2AssistedProject) -> dict[str, object]:
     branches = project.conversation_branches()
     turns = {turn.turn_id: turn for branch in branches for turn in branch.turns}
@@ -421,23 +446,30 @@ def _safe(value: str) -> None:
         raise ValueError("unsafe KREA2 assisted identifier")
 
 
+@timed("projects.encode", aggregate=True, cpu=True)
 def _json_bytes(value: object) -> bytes:
     return json.dumps(value, ensure_ascii=False, indent=2).encode("utf-8") + b"\n"
 
 
+@timed("projects.atomic_write", aggregate=True, cpu=True)
 def _atomic_write(path: Path, content: bytes) -> None:
-    descriptor, temporary = tempfile.mkstemp(
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-    )
+    with phase("projects.write.tempfile", aggregate=True, cpu=True):
+        descriptor, temporary = tempfile.mkstemp(
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        )
     temporary_path = Path(temporary)
     try:
         with os.fdopen(descriptor, "wb") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary_path, path)
+            with phase("projects.write.flush", aggregate=True, cpu=True) as metrics:
+                stream.write(content)
+                stream.flush()
+                metrics["bytes"] = len(content)
+            with phase("projects.write.fsync", aggregate=True, cpu=True):
+                os.fsync(stream.fileno())
+        with phase("projects.write.replace", aggregate=True, cpu=True):
+            os.replace(temporary_path, path)
     finally:
         temporary_path.unlink(missing_ok=True)
 

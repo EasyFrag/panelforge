@@ -61,6 +61,13 @@ class MinimaxFixture(QwenEditFixture):
 
 class MinimaxEditTest(MinimaxFixture):
     def test_guide_and_render_roles_match_compiled_picture_order_and_frozen_context(self):
+        timings = []
+
+        def broken_diagnostic_sink(record):
+            timings.append(record)
+            raise OSError("diagnostic disk unavailable")
+
+        self.service.image_timings = broken_diagnostic_sink
         self.guide()
         self.reference("Palette assistant", "assistant")
         reference = self.reference("Costume", "render")
@@ -77,6 +84,12 @@ class MinimaxEditTest(MinimaxFixture):
         result = self.current()["attempts"][-1]
         self.assertEqual(result["status"], "succeeded", result["error"])
         self.assertEqual(result["engine"], "minimax")
+        self.assertEqual(len(timings), 1)
+        self.assertEqual(timings[0]["attempt_id"], attempt["id"])
+        self.assertEqual(timings[0]["status"], "succeeded")
+        self.assertEqual(timings[0]["execution_id"], result["execution_id"])
+        self.assertIn("asset.create", [p["name"] for p in timings[0]["phases"]])
+        self.assertNotIn(result["prompt"], json.dumps(timings))
         self.assertEqual(result["finish"]["status"], "raw")
         self.assertEqual(result["output_asset_id"], result["raw_output_asset_id"])
         self.assertEqual(len(self.comfy.uploads), 2)  # Source+guide RGBA, costume; assistant excluded.

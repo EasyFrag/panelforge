@@ -49,7 +49,8 @@ class DeferredThread:
 
 class FactoryDomainTest(unittest.TestCase):
     def test_presets_image_role_lips_and_instagram_defaults(self):
-        self.assertEqual(set(PRESETS), {"source", "lips", "little_men", "little_men_experimental", "custom"})
+        self.assertEqual(set(PRESETS), {"source", "auto", "lips", "little_men_experimental", "custom"})
+        self.assertEqual(PRESETS["little_men_experimental"], "Petits hommes")
         config = configuration()
         config["references"] = [dict(asset_id="asset-image", role="unassigned")]
         self.assertTrue(readiness(config))

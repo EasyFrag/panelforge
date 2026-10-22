@@ -56,6 +56,7 @@ from . import (
     krea2_assisted_v6,
 )
 from .production_resources import ResourceWaitCancelled
+from .image_timings import annotate, image_trace, phase, queue_age, timed, timed_lease, timed_lock
 from .prompt_lab import (
     CompletionRequest,
     ImageInput,
@@ -231,6 +232,7 @@ class Krea2AssistedService:
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         work_coordinator=None,
+        image_timings=None,
     ) -> None:
         if run_timeout <= 0 or poll_interval <= 0:
             raise ValueError("timeouts must be positive")
@@ -275,6 +277,7 @@ class Krea2AssistedService:
         self._monotonic = monotonic
         self._sleep = sleep
         self.work_coordinator = work_coordinator
+        self.image_timings = image_timings
         self._lock = RLock()
         self._claimed: set[tuple[str, str]] = set()
         self._chatting: set[str] = set()
@@ -423,7 +426,7 @@ class Krea2AssistedService:
     def save_style_preset(self, project_id: str, attempt_id: str, name: str,
                           *, preset_id: str | None = None, expected_revision: int | None = None,
                           category: Krea2StylePresetCategory | None = None) -> Krea2StylePreset:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.save_style_preset", sink=self.image_timings):
             if self.presets is None:
                 raise ValueError("Le catalogue de presets n’est pas configuré.")
             project = self.projects.get(project_id)
@@ -448,7 +451,7 @@ class Krea2AssistedService:
 
     def update_style_preset(self, preset_id: str, *, name: str,
                             category: Krea2StylePresetCategory, expected_revision: int) -> Krea2StylePreset:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.update_style_preset", sink=self.image_timings):
             if self.presets is None:
                 raise ValueError("Le catalogue de presets n’est pas configuré.")
             previous = self._preset(preset_id)
@@ -462,7 +465,7 @@ class Krea2AssistedService:
             ))
 
     def delete_style_preset(self, preset_id: str, *, expected_revision: int) -> Krea2StylePreset:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.delete_style_preset", sink=self.image_timings):
             if self.presets is None:
                 raise ValueError("Le catalogue de presets n’est pas configuré.")
             return self.presets.delete(preset_id, expected_revision)
@@ -470,7 +473,7 @@ class Krea2AssistedService:
     def apply_style_preset(self, project_id: str, preset_id: str | None, *, expected_branch_id: str,
                            current_prompt: str | None, settings: Krea2BatchSettings,
                            seed: int | None) -> Krea2AssistedProject:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.apply_style_preset", sink=self.image_timings):
             project = self.projects.get(project_id)
             self._check_conversation_change(project, expected_branch_id)
             preset = self._preset(preset_id) if preset_id else None
@@ -492,7 +495,7 @@ class Krea2AssistedService:
             ))
 
     def get(self, project_id: str) -> Krea2AssistedProject:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.get", sink=self.image_timings):
             return self._refresh_detached(self.projects.get(project_id))
 
     @staticmethod
@@ -568,7 +571,7 @@ class Krea2AssistedService:
         settings: Krea2BatchSettings,
         seed: int | None,
     ) -> Krea2AssistedProject:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.select_art_direction", sink=self.image_timings):
             project = self.projects.get(project_id)
             self._check_conversation_change(project, expected_branch_id)
             if project.assistance_recipe_version != krea2_assisted_v6.VERSION:
@@ -616,7 +619,7 @@ class Krea2AssistedService:
         *,
         expected_branch_id: str,
     ) -> Krea2AssistedProject:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.select_prompt_example", sink=self.image_timings):
             project = self.projects.get(project_id)
             self._check_conversation_change(project, expected_branch_id)
             if project.assistance_recipe_version not in {
@@ -636,7 +639,7 @@ class Krea2AssistedService:
     ) -> Krea2AssistedProject:
         if not isinstance(enabled, bool):
             raise TypeError("enabled must be a boolean")
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.set_local_inspiration", sink=self.image_timings):
             project = self.projects.get(project_id)
             self._check_conversation_change(project, expected_branch_id)
             if project.assistance_recipe_version not in {
@@ -663,7 +666,7 @@ class Krea2AssistedService:
         *,
         expected_branch_id: str,
     ) -> Krea2AssistedProject:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.recompile_prompt_example", sink=self.image_timings):
             project = self.projects.get(project_id)
             self._check_conversation_change(project, expected_branch_id)
             if project.assistance_recipe_version not in {
@@ -693,7 +696,7 @@ class Krea2AssistedService:
         return self.prompt_wildcards.preview_path(template_id)
 
     def list(self, limit: int = 30) -> list[Krea2AssistedProject]:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.list", sink=self.image_timings):
             return [self._refresh_detached(value) for value in self.projects.list(limit)]
 
     def stream_chat(
@@ -732,7 +735,7 @@ class Krea2AssistedService:
             )
         elif guidance_filename is not None:
             raise ValueError("guidance_filename requires guidance_asset_id")
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.stream_chat.1", sink=self.image_timings):
             project = self.projects.get(project_id)
             self._check_conversation_change(project, expected_branch_id)
             if current_prompt is not None:
@@ -788,7 +791,7 @@ class Krea2AssistedService:
                         project.assistance_recipe_version,
                         brief.retrieval_query,
                     )
-                    with self._lock:
+                    with timed_lock(self._lock, "krea2.service.stream_chat.2", sink=self.image_timings):
                         project = self.projects.save(
                             self.projects.get(project_id).replace_prompt_examples(examples, brief)
                         )
@@ -869,7 +872,7 @@ class Krea2AssistedService:
                 _error(error),
             )
         finally:
-            with self._lock:
+            with timed_lock(self._lock, "krea2.service.stream_chat.3", sink=self.image_timings):
                 self._chatting.discard(project_id)
 
     def prepare_attempt(
@@ -890,7 +893,7 @@ class Krea2AssistedService:
         if enqueue:
             self._validate_render_settings(settings, allow_cached=True)
         chosen_seed = self._seed_factory() if seed is None else seed
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.prepare_attempt", sink=self.image_timings):
             project = self.projects.get(project_id)
             if expected_branch_id is not None and project.active_branch_id != expected_branch_id:
                 raise ValueError("La branche active a changé. Rechargez le projet.")
@@ -943,7 +946,7 @@ class Krea2AssistedService:
     ) -> Krea2AssistedProject:
         if (branch_id is None) == (attempt_id is None):
             raise ValueError("Choose either a branch or an attempt")
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.change_branch", sink=self.image_timings):
             project = self.projects.get(project_id)
             self._check_conversation_change(project, expected_branch_id)
             # Preserve unsent prompt/settings edits on the departing path.
@@ -965,7 +968,7 @@ class Krea2AssistedService:
             return self.projects.save(project)
 
     def queue_attempt(self, project_id: str, attempt_id: str) -> Krea2AssistedProject:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.queue_attempt", sink=self.image_timings):
             project = self.projects.get(project_id)
             attempt = project.attempt(attempt_id)
             if attempt.kind == "composition":
@@ -992,12 +995,14 @@ class Krea2AssistedService:
             f"KREA2 · {project.name}"[:200],
         )
 
+    @timed("krea2.queue.next_order", cpu=True)
     def _next_queue_order(self) -> int:
         # A durable global order, independent of project edits and branch navigation.
         latest = max((attempt.queue_order or 0 for project in self.projects.list(2**31 - 1)
                       for attempt in project.attempts), default=0)
         return max(time.time_ns(), latest + 1)
 
+    @timed("krea2.queue.pending", cpu=True)
     def _pending_renders(self) -> list[tuple[Krea2AssistedProject, Krea2AssistedAttempt]]:
         entries = [(project, attempt) for project in self.projects.list(2**31 - 1)
                    for attempt in project.attempts if attempt.status in _RENDER_PENDING]
@@ -1008,7 +1013,7 @@ class Krea2AssistedService:
         return entries
 
     def render_queue(self) -> dict[str, object]:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.render_queue", sink=self.image_timings):
             entries = self._pending_renders()
             return {
                 "worker_running": bool(self._render_worker and self._render_worker.is_alive()),
@@ -1025,7 +1030,7 @@ class Krea2AssistedService:
             }
 
     def start_render_worker(self) -> None:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.start_render_worker", sink=self.image_timings):
             for project, attempt in self._pending_renders():
                 self._enqueue_render(project, attempt)
             if self._render_worker is None or not self._render_worker.is_alive():
@@ -1061,7 +1066,7 @@ class Krea2AssistedService:
         try:
             if self._render_stop.is_set():
                 return False
-            with self._lock:
+            with timed_lock(self._lock, "krea2.service.process_next_render", sink=self.image_timings):
                 if until is not None and self.projects.get(until[0]).attempt(until[1]).status not in _RENDER_PENDING:
                     return False
                 entries = self._pending_renders()
@@ -1089,17 +1094,24 @@ class Krea2AssistedService:
         return self.projects.get(project_id)
 
     def _execute_render(self, project_id: str, attempt_id: str) -> Krea2AssistedProject:
+        with image_trace(self.image_timings, engine="krea2", project_id=project_id, attempt_id=attempt_id):
+            result = self._execute_render_tracked(project_id, attempt_id)
+            attempt = result.attempt(attempt_id)
+            annotate(status=attempt.status.value, execution_id=attempt.execution_id)
+            return result
+
+    def _execute_render_tracked(self, project_id: str, attempt_id: str) -> Krea2AssistedProject:
         if self.work_coordinator is not None:
             try:
                 project_name = self.projects.get(project_id).name
-                with self.work_coordinator.lease(
+                with timed_lease(self.work_coordinator.lease(
                     f"krea2:{project_id}:{attempt_id}",
                     ComputeResource.REMOTE_GPU,
                     ProductionWorkload.IMAGE_RENDER,
                     f"KREA2 · {project_name}"[:200],
                     cancelled=lambda: self.projects.get(project_id).attempt(attempt_id).status
                     not in _RENDER_PENDING,
-                ):
+                )):
                     return self._execute_render_owned(project_id, attempt_id)
             except ResourceWaitCancelled:
                 return self.projects.get(project_id)
@@ -1110,7 +1122,7 @@ class Krea2AssistedService:
         activity_id = f"krea2:{project_id}:{attempt_id}"
         if self.work_coordinator is not None:
             self.work_coordinator.report_progress(activity_id, 0.02, "Préparation du workflow KREA2")
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.render.claim", sink=self.image_timings):
             project = self.projects.get(project_id)
             attempt = project.attempt(attempt_id)
             if attempt.status not in {
@@ -1122,6 +1134,8 @@ class Krea2AssistedService:
                 raise ValueError("attempt is already executing")
             self._claimed.add(key)
         execution_id = attempt.execution_id
+        annotate(execution_id=execution_id)
+        queue_age(attempt.queue_order / 1e9 if attempt.queue_order else None, resumed=execution_id is not None)
         history_received = False
         output_prefix = f"image/krea2-assisted/{project_id}/{attempt_id}"
         try:
@@ -1140,19 +1154,22 @@ class Krea2AssistedService:
                 digest = self.projects.save_compiled_workflow(project_id, attempt_id, workflow)
                 if self.work_coordinator is not None:
                     self.work_coordinator.report_progress(activity_id, 0.08, "Envoi à ComfyUI")
-                with self._lock:
+                with timed_lock(self._lock, "krea2.service.render.submitting", sink=self.image_timings):
                     current = self.projects.get(project_id)
                     current_attempt = current.attempt(attempt_id)
                     if current_attempt.status is not Krea2AssistedAttemptStatus.QUEUED or self._render_stop.is_set():
                         return current
                     self.projects.save(current.replace_attempt(current_attempt.submitting(digest)))
-                execution_id = self.comfy.submit_workflow(workflow)
-                with self._lock:
+                with phase("comfy.submit"):
+                    execution_id = self.comfy.submit_workflow(workflow)
+                annotate(execution_id=execution_id)
+                with timed_lock(self._lock, "krea2.service.render.running", sink=self.image_timings):
                     current = self.projects.get(project_id)
                     self.projects.save(current.replace_attempt(current.attempt(attempt_id).start(execution_id, digest)))
             if self.work_coordinator is not None:
                 self.work_coordinator.report_execution_id(activity_id, execution_id)
-            history = self._wait_history(project_id, attempt_id, execution_id)
+            with phase("comfy.wait_history"):
+                history = self._wait_history(project_id, attempt_id, execution_id)
             if self.work_coordinator is not None:
                 self.work_coordinator.report_progress(activity_id, 0.88, "Récupération de l’image")
             history_received = True
@@ -1161,7 +1178,7 @@ class Krea2AssistedService:
             )
             if self.work_coordinator is not None:
                 self.work_coordinator.report_progress(activity_id, 0.96, "Import de l’image")
-            with self._lock:
+            with timed_lock(self._lock, "krea2.service.render.finish", sink=self.image_timings):
                 current = self.projects.get(project_id)
                 current_attempt = current.attempt(attempt_id)
                 if current_attempt.status in {
@@ -1179,7 +1196,7 @@ class Krea2AssistedService:
         except _RenderTrackingStopped:
             return self.projects.get(project_id)
         except Exception as error:
-            with self._lock:
+            with timed_lock(self._lock, "krea2.service.render.error", sink=self.image_timings):
                 current = self.projects.get(project_id)
                 current_attempt = current.attempt(attempt_id)
                 if current_attempt.status is Krea2AssistedAttemptStatus.SUBMITTING:
@@ -1199,11 +1216,11 @@ class Krea2AssistedService:
                     current = self.projects.save(current.replace_attempt(current_attempt.fail(_error(error))))
                 return current
         finally:
-            with self._lock:
+            with timed_lock(self._lock, "krea2.service.render.release", sink=self.image_timings):
                 self._claimed.discard(key)
 
     def cancel_attempt(self, project_id: str, attempt_id: str) -> Krea2AssistedProject:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.cancel_attempt", sink=self.image_timings):
             project = self.projects.get(project_id)
             attempt = project.attempt(attempt_id)
             if attempt.status is Krea2AssistedAttemptStatus.SUBMITTING:
@@ -1243,12 +1260,12 @@ class Krea2AssistedService:
                 return self.projects.save(project.replace_attempt(attempt.cancel_pending(_error(error))))
 
     def select_feedback(self, project_id: str, attempt_id: str | None) -> Krea2AssistedProject:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.select_feedback", sink=self.image_timings):
             project = self.projects.get(project_id)
             return self.projects.save(project.use_feedback(attempt_id))
 
     def save_image(self, project_id: str, attempt_id: str) -> Krea2AssistedProject:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.save_image", sink=self.image_timings):
             project = self.projects.get(project_id).accept_attempt(attempt_id)
             if self.exporter is None:
                 return self.projects.save(project)
@@ -1266,7 +1283,7 @@ class Krea2AssistedService:
         project_id: str,
         draft: Krea2AssistedRecipeDraft,
     ) -> Krea2AssistedProject:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.set_recipe_draft", sink=self.image_timings):
             project = self.projects.get(project_id)
             draft = replace(draft, prompt_language=project.prompt_language)
             return self.projects.save(project.with_recipe_draft(draft))
@@ -1276,7 +1293,7 @@ class Krea2AssistedService:
         project_id: str,
         draft: Krea2AssistedRecipeDraft | None = None,
     ) -> tuple[Krea2AssistedProject, Krea2VisualRecipe]:
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.publish_recipe", sink=self.image_timings):
             project = self.projects.get(project_id)
             proposal = draft or project.recipe_draft
             if proposal is None:
@@ -1461,7 +1478,7 @@ class Krea2AssistedService:
         value = _decode_json(raw)
         message = _bounded_text(value.get("message"), "assistant message", 12_000)
         questions = _string_array(value.get("questions"), "questions", maximum=3)
-        with self._lock:
+        with timed_lock(self._lock, "krea2.service.accept_chat_response", sink=self.image_timings):
             project = self.projects.get(project_id)
             if mode is Krea2AssistedTurnMode.CREATION:
                 if set(value) != {"message", "questions", "prompt", "recommendations"}:
@@ -1589,6 +1606,7 @@ class Krea2AssistedService:
             return project
         return self.projects.save(project.replace_attempt(updated))
 
+    @timed("catalog.validate")
     def _validate_render_settings(self, settings: Krea2BatchSettings, *, allow_cached: bool = False) -> None:
         workflow = self._workflow_for_settings(settings)
         sampling = sampling_for(settings)
@@ -1658,17 +1676,20 @@ class Krea2AssistedService:
                     getattr(output_spec, "history_field"),
                     f"{output_prefix}{getattr(output_spec, 'prefix_suffix', '')}",
                 )
-                content = self.comfy.download_output(
-                    filename=output["filename"],
-                    subfolder=output["subfolder"],
-                    folder_type=output["type"],
-                )
-                _validate_png(content)
-                asset = self.assets.create(
-                    content,
-                    media_type=getattr(output_spec, "media_type"),
-                    source_run_id=project_id,
-                )
+                with phase(f"output.{role}.download"):
+                    content = self.comfy.download_output(
+                        filename=output["filename"],
+                        subfolder=output["subfolder"],
+                        folder_type=output["type"],
+                    )
+                with phase(f"output.{role}.validate"):
+                    _validate_png(content)
+                with phase(f"output.{role}.store"):
+                    asset = self.assets.create(
+                        content,
+                        media_type=getattr(output_spec, "media_type"),
+                        source_run_id=project_id,
+                    )
                 assets[role] = asset.asset_id
             except Exception as error:
                 if getattr(output_spec, "required", True):

@@ -45,6 +45,28 @@ class VideoFactoryHttpTest(unittest.TestCase):
             "revisions": {item["id"]: item["revision"]}}).status_code, 422)
         self.assertEqual(self.adapter.calls, [])
 
+    def test_auto_preset_prepares_one_nine_second_shot_without_launching(self):
+        response = self.client.post("/api/video-factory/receive", json=dict(
+            source_kind="image", asset_id="asset-jewels", name="Un monde de bijoux"))
+        item = response.json()["state"]["items"][0]
+        response = self.client.patch("/api/video-factory/items", json=dict(
+            ids=[item["id"]], revisions={item["id"]: item["revision"]}, preset="auto"))
+        self.assertEqual(response.status_code, 200)
+        state = response.json()["state"]
+        item = state["items"][0]
+        self.assertEqual(item["status"], "preparation")
+        self.assertTrue(item["ready"])
+        self.assertEqual(item["config"]["render"]["settings"]["duration_seconds"], 9)
+        self.assertEqual(item["config"]["cinematic_settings"]["shot_count"], 1)
+        self.assertEqual(item["config"]["references"][0]["role"], "first_frame")
+        self.assertTrue(item["config"]["dlss"]["enabled"])
+        self.assertEqual(item["steps"]["plan"]["status"], "pending")
+        self.assertEqual(item["steps"]["dlss"]["status"], "pending")
+        self.assertNotIn("little_men", state["presets"])
+        self.assertEqual(state["presets"]["little_men_experimental"], "Petits hommes")
+        self.assertIn("little_men", state["preset_labels"])
+        self.assertEqual(self.adapter.calls, [])
+
     def test_unconfigured_factory_returns_explicit_503(self):
         app = FastAPI(); app.include_router(video_factory_router(None, validate_image=lambda content: "image/png"))
         with TestClient(app) as client:
@@ -153,6 +175,12 @@ class VideoFactoryBrowserTest(unittest.TestCase):
             const settle=async()=>{for(let i=0;i<15;i++)await new Promise(r=>setTimeout(r,0));};
             await settle();await window.PanelForgeVideoFactory.open([data.items[0].id]);await settle();
             check(document.querySelector('#vf-bulk-preset option[value="little_men_experimental"]'),'bulk preset');
+            for(const id of ['vf-bulk-preset','vf-item-preset']){
+              const select=document.getElementById(id);
+              check(!select.querySelector('option[value="little_men"]'),'retired preset hidden');
+              check(select.querySelector('option[value="little_men_experimental"]').textContent==='Petits hommes','retained preset renamed');
+              check(select.querySelector('option[value="auto"]').textContent==='Auto','auto available');
+            }
             check(document.querySelector('#vf-item-preset').value==='little_men_experimental','individual preset');
             const section=document.querySelector('[data-vf-localized-thanks]');
             check(section.textContent.includes('Coréen · 감사합니다!'),'resolved native thanks visible');

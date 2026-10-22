@@ -8,6 +8,7 @@ checkpoints or requires CivitAI to be reachable.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -24,6 +25,7 @@ import urllib.parse
 import urllib.request
 
 from panelforge.domain.krea2_lab import normalize_krea2_model_name
+from panelforge.application.image_timings import phase
 from .background_snapshot import BackgroundSnapshot
 
 
@@ -710,28 +712,33 @@ class LocalKrea2ResourceCatalog:
 
     def _scan(self, kind: Krea2ResourceKind, *, details=True) -> tuple[Krea2Resource, ...]:
         root = self.models_root if kind is Krea2ResourceKind.MODEL else self.loras_root
-        with self._lock:
-            state = self._load_state()
+        with ExitStack() as stack:
+            with phase(f"catalog.{kind.value}.lock_wait"):
+                stack.enter_context(self._lock)
+            with phase(f"catalog.{kind.value}.local_state"):
+                state = self._load_state()
             warnings: list[str] = []
-            local_root_available = root.is_dir()
-            if local_root_available:
-                result = [
-                    self._resource(path, root=root, kind=kind, state=state, read_details=details)
-                    for path in root.rglob("*")
-                    if path.suffix.casefold() in _MODEL_EXTENSIONS
-                    and path.is_file()
-                    and not path.is_symlink()
-                    and path.suffix.casefold() in _MODEL_EXTENSIONS
-                ]
-            else:
-                result = []
+            with phase(f"catalog.{kind.value}.filesystem"):
+                local_root_available = root.is_dir()
+                if local_root_available:
+                    result = [
+                        self._resource(path, root=root, kind=kind, state=state, read_details=details)
+                        for path in root.rglob("*")
+                        if path.suffix.casefold() in _MODEL_EXTENSIONS
+                        and path.is_file()
+                        and not path.is_symlink()
+                        and path.suffix.casefold() in _MODEL_EXTENSIONS
+                    ]
+                else:
+                    result = []
             if self.comfy is not None:
                 try:
-                    remote_names = (
-                        self.comfy.list_unet_models()
-                        if kind is Krea2ResourceKind.MODEL
-                        else self.comfy.list_lora_models()
-                    )
+                    with phase(f"catalog.{kind.value}.http"):
+                        remote_names = (
+                            self.comfy.list_unet_models()
+                            if kind is Krea2ResourceKind.MODEL
+                            else self.comfy.list_lora_models()
+                        )
                 except Exception as error:
                     if not details:
                         raise RuntimeError("Inventaire ComfyUI indisponible") from error

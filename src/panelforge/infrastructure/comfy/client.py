@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
+from panelforge.application.image_timings import observe_history, phase
+
 import json
 import mimetypes
 import urllib.error
@@ -256,7 +259,10 @@ class ComfyHttpClient:
             headers={"Accept": "application/json"},
             method="GET",
         )
-        return self._read_json(request)
+        with phase("comfy.history", aggregate=True):
+            history = self._read_json(request)
+        observe_history(history, prompt_id)
+        return history
 
     def list_unet_models(self) -> tuple[str, ...]:
         """Return the diffusion checkpoints exposed by ComfyUI's UNET loader.
@@ -490,12 +496,23 @@ class ComfyHttpClient:
             method="GET",
         )
 
-        with (self._opener or urllib.request.urlopen)(request, timeout=self.timeout) as response:
-            return response.read()
+        with ExitStack() as stack:
+            with phase("download.response"):
+                response = stack.enter_context((self._opener or urllib.request.urlopen)(request, timeout=self.timeout))
+            with phase("download.body") as metrics:
+                content = response.read()
+                metrics["bytes"] = len(content)
+                return content
 
     def _read_json(self, request: urllib.request.Request) -> JsonObject:
-        with (self._opener or urllib.request.urlopen)(request, timeout=self.timeout) as response:
-            return cast(JsonObject, json.load(response))
+        path = urllib.parse.urlsplit(request.full_url).path
+        operation = ("history" if "/history/" in path else "catalog" if "/object_info/" in path
+                     else "submit" if path.endswith("/prompt") else "upload" if path.endswith("/upload/image") else "other")
+        with ExitStack() as stack:
+            with phase(f"http.{operation}.response", aggregate=True):
+                response = stack.enter_context((self._opener or urllib.request.urlopen)(request, timeout=self.timeout))
+            with phase(f"http.{operation}.body_json", aggregate=True):
+                return cast(JsonObject, json.load(response))
 
     def _post_json_without_response(
         self,

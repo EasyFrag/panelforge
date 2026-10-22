@@ -89,6 +89,7 @@ from panelforge.application.minimax_edit import MinimaxEditService
 from panelforge.infrastructure.presets.minimax_edit import load_minimax_edit_workflow
 from panelforge.infrastructure.minimax_edit_images import PillowMinimaxEditImages
 from panelforge.infrastructure.storage.minimax_edits import LocalMinimaxEditStore
+from panelforge.infrastructure.storage.image_timings import LocalImageTimings
 from panelforge.infrastructure.presets.qwen_edit import load_qwen_edit_workflow
 from panelforge.infrastructure.qwen_edit_images import PillowQwenEditImages
 from panelforge.infrastructure.qwen_project_exports import LocalQwenProjectExporter
@@ -318,6 +319,9 @@ def build_app(args: argparse.Namespace):
     prompt_compositions = LocalPromptCompositionStore(args.workspace)
     llm_calls = LocalLlmCallStore(args.workspace, capacity=20)
     llm_traces = LocalLlmTraceStore(args.workspace)
+    image_timings = (LocalImageTimings(args.workspace)
+                     if os.environ.get("PANELFORGE_IMAGE_TIMINGS", "1").strip().lower() not in {"0", "false", "off"}
+                     else None)
     comfy = ComfyHttpClient(
         args.base_url,
         client_id=f"panelforge-lab-{uuid4().hex}",
@@ -465,6 +469,7 @@ def build_app(args: argparse.Namespace):
             )
         ),
         application_outcomes=gateway,
+        image_timings=image_timings,
         run_timeout=getattr(args, "krea2_assisted_run_timeout", 3600.0),
         poll_interval=args.poll_interval,
         work_coordinator=machine_work,
@@ -497,6 +502,7 @@ def build_app(args: argparse.Namespace):
     )
     qwen_edit = QwenEditService(
         gateway=gateway,
+        image_timings=image_timings,
         workflow=load_qwen_edit_workflow(PROJECT_ROOT / "workflows/image.edit/qwen-image-2.1/2.0.0"),
         comfy=krea2_edit_comfy, assets=assets, projects=LocalQwenEditStore(args.workspace),
         images=PillowQwenEditImages(),
@@ -508,6 +514,7 @@ def build_app(args: argparse.Namespace):
     )
     minimax_edit = MinimaxEditService(
         gateway=gateway,
+        image_timings=image_timings,
         workflow=load_minimax_edit_workflow(PROJECT_ROOT / "workflows/image.edit/minimax-h3-still/1.3.0"),
         comfy=krea2_edit_comfy, assets=assets, projects=LocalMinimaxEditStore(args.workspace),
         images=PillowMinimaxEditImages(),

@@ -147,6 +147,7 @@ class Krea2AssistedServiceTest(unittest.TestCase):
             gateway = Gateway((creation, second_creation, recipe_response))
             comfy = Comfy()
             store = LocalKrea2AssistedProjectStore(root)
+            timings = []
             service = Krea2AssistedService(
                 gateway=gateway,
                 recipes=catalog,
@@ -155,6 +156,7 @@ class Krea2AssistedServiceTest(unittest.TestCase):
                 assets=assets,
                 projects=store,
                 resources=Resources(shipped.settings.model_name, lora),
+                image_timings=timings.append,
                 exporter=LocalKrea2CreationExporter(root / "exports"),
                 poll_interval=0.001,
                 project_id_factory=lambda: "krea2-create-test",
@@ -195,6 +197,22 @@ class Krea2AssistedServiceTest(unittest.TestCase):
             self.assertEqual(project.attempt("attempt-1").status, Krea2AssistedAttemptStatus.SUCCEEDED)
             self.assertEqual(len(comfy.workflows), 1)
             self.assertNotIn(reference.asset_id, json.dumps(comfy.workflows[0]))
+            image_timings = [value for value in timings if value["kind"] == "image"]
+            self.assertEqual(len(image_timings), 1)
+            timing = image_timings[0]
+            self.assertEqual(timing["attempt_id"], "attempt-1")
+            self.assertEqual(timing["status"], "succeeded")
+            self.assertEqual(timing["execution_id"], project.attempt("attempt-1").execution_id)
+            phases = [p["name"] for p in timing["phases"]]
+            self.assertIn("catalog.validate", phases)
+            self.assertIn("asset.content_write_fsync", phases)
+            for step in ("claim", "submitting", "running", "finish", "release"):
+                self.assertIn(f"krea2.service.render.{step}.lock_wait", phases)
+                self.assertIn(f"krea2.service.render.{step}.lock_held", phases)
+            self.assertIn("projects.save.lock_wait", timing["aggregates"])
+            self.assertIn("projects.write.fsync", timing["aggregates"])
+            self.assertEqual(timing["dropped_phases"], 0)
+            self.assertNotIn(PROMPT, json.dumps(timings))
 
             project = service.select_feedback(project.project_id, "attempt-1")
             guidance = assets.create(PNG + b"guidance", media_type="image/png")

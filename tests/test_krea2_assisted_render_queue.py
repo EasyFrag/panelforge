@@ -8,8 +8,10 @@ from threading import Event, Thread
 from types import SimpleNamespace
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from panelforge.application.krea2_assisted import Krea2AssistedService
+from panelforge.application.image_timings import image_trace
 from panelforge.application.machine_work import MachineWorkCoordinator
 from panelforge.domain.krea2_assisted import Krea2AssistedAttemptStatus as Status
 from panelforge.domain.krea2_batch import Krea2BatchSettings, Krea2LoraSelection
@@ -110,6 +112,52 @@ class AssistedRenderQueueTest(unittest.TestCase):
         )
         self.services.append(service)
         return service
+
+    def test_slow_queue_scan_is_traced_once_without_extra_project_reads(self):
+        records, clock = [], [0.0]
+        self.service.image_timings = records.append
+        original_read = Path.read_text
+        reads = []
+
+        def read(path, *args, **kwargs):
+            if path.name == "project.json":
+                reads.append(path)
+                clock[0] += 1
+            return original_read(path, *args, **kwargs)
+
+        with patch.object(Path, "read_text", read), \
+                patch("panelforge.application.image_timings.time.perf_counter", side_effect=lambda: clock[0]):
+            self.assertEqual(self.service.render_queue()["items"], [])
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        self.assertEqual(record["operation"], "krea2.service.render_queue")
+        groups = record["aggregates"]
+        self.assertEqual(groups["projects.list.enumerate"]["projects"], 1)
+        self.assertEqual(groups["projects.list.load"]["projects"], 1)
+        self.assertEqual(groups["projects.read"]["duration_ms"], 1000)
+        self.assertEqual(groups["projects.decode"]["duration_ms"], 0)
+        self.assertEqual(record["dropped_phases"], 0)
+        self.assertEqual(self.comfy.workflows, [])
+
+    def test_store_trace_respects_list_limit_and_preserves_saved_project(self):
+        records = []
+        self.service.create_project(name="Private title", intention="Private prompt", model_id="local")
+        store = self.service.projects
+        with image_trace(records.append, engine="krea2", project_id="test", attempt_id="test"):
+            self.assertEqual(len(store.list(1)), 1)
+            self.assertEqual(store.list(0), [])
+            before = store.get(self.project.project_id)
+            store.save(before)
+            self.assertEqual(store.get(self.project.project_id), before)
+        groups = records[0]["aggregates"]
+        self.assertEqual(groups["projects.list.enumerate"]["projects"], 4)
+        self.assertEqual(groups["projects.list.load"]["projects"], 1)
+        self.assertEqual(groups["projects.read"]["count"], 3)
+        self.assertEqual(groups["projects.write.fsync"]["count"], 1)
+        self.assertEqual(groups["projects.write.replace"]["count"], 1)
+        for private in ("Private title", "Private prompt", str(self.root)):
+            self.assertNotIn(private, json.dumps(records))
 
     def prepare(self, *, project=None, prompt="A photo", settings=None, seed=0, enqueue=True):
         value = self.service.prepare_attempt(

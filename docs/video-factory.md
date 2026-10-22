@@ -3,7 +3,35 @@
 Implémentation du 25 septembre 2026 dans le checkout `D:\Code\panelforge-krea2-flux`, branche `feature/video-factory-2026-09-25`.
 
 
-## Preset Petits hommes — expérimental (1er octobre 2026)
+## Preset Auto (22 octobre 2026)
+
+**Auto** utilise une image comme première frame et prépare un unique plan continu
+de **9 secondes**, avec **DLSS activé** et Texte IG désactivé. Au lancement, le
+Plan visuel existant analyse la situation, la posture et le mouvement suggéré,
+puis choisit une suite intéressante réalisable dans cette durée. Les sujets,
+échelles, matières et la direction artistique doivent rester cohérents, y
+compris pour les accessoires ou événements ajoutés. Aucun scénario de parachute
+ou de chute n’est imposé aux autres images : la suite dépend de l’image fournie.
+
+L’intention et les réglages restent modifiables avant lancement. Appliquer le
+preset prépare la fiche sans appeler le LLM ni lancer de vidéo. La proposition
+retenue est ensuite consultable dans le Plan et le Prompt du parcours habituel.
+La durée effective est transmise lors d’une nouvelle préparation, même après
+personnalisation. Une durée modifiée après préparation ne réécrit pas un prompt
+déjà prêt. Aucun appel de proposition supplémentaire n’est ajouté.
+
+Les menus proposent désormais **Petits hommes** pour la version jusque-là
+nommée **Petits hommes — expérimental**, avec les mêmes réglages de 10 secondes
+et les mêmes règles d’aide et de remerciement. Son identifiant interne reste
+`little_men_experimental`. L’ancienne variante de huit secondes est retirée des
+choix ; ses fiches et résultats restent lisibles sous **Petits hommes (ancien)**,
+sans migration des paramètres, prompts ou fichiers.
+
+Tests à lancer par l’utilisateur :
+`python -m unittest discover -s tests -p "test_video_factory*.py"`.
+Aucun test, appel LLM, rendu ou redémarrage exécuté pendant l’implémentation.
+
+## Preset Petits hommes (anciennement expérimental, 1er octobre 2026)
 
 Le preset garde une image de départ et un plan continu de 10 secondes. Une main
 géante détourne un objet du quotidien à échelle humaine, monumental pour les
@@ -198,7 +226,7 @@ Une scène correspond à une ligne : cinq scènes d’histoire donnent cinq vid�
 
 ## Réglages
 
-Cinq presets : Réglages source, Lèvres, Petits hommes, Petits hommes — expérimental, Personnalisé. Une modification devient Personnalisé en conservant l’origine. Réglages source restaure la copie capturée à l’envoi.
+Cinq presets : Réglages source, Auto, Lèvres, Petits hommes, Personnalisé. Une modification devient Personnalisé en conservant l’origine. Réglages source restaure la copie capturée à l’envoi.
 
 - Lèvres : H3, une image de fin, un plan de 10 s. Deux passages complets du rouge
   à lèvres, d’abord en bas puis en haut : dépôt immédiat uniquement derrière le
@@ -208,12 +236,13 @@ Cinq presets : Réglages source, Lèvres, Petits hommes, Petits hommes — expé
   Matières/couleurs adaptées à la référence. DLSS actif, Texte IG désactivé par
   défaut ; axes 1/1/1, dialogue 0 et audace 1. Réappliquer le preset pour mettre
   à jour une ancienne ligne. Choisir une image finale avec le sourire souhaité.
-- Petits hommes : H3, image de départ, un plan, huit secondes ; une main géante apporte un accessoire librement choisi pour aider les petits personnages. L’intention illustrée reste éditable ; DLSS est activé et Texte IG désactivé à l’application de ce preset.
+- Auto : H3, image de départ, un plan continu de neuf secondes ; le LLM choisit une suite cohérente avec la scène et son univers visuel, sans dialogue ajouté. DLSS activé, Texte IG désactivé.
+- Petits hommes : H3, image de départ, un plan de dix secondes ; une main géante détourne un objet du quotidien pour aider les petits personnages, puis ils remercient une seule fois dans la langue choisie. L’intention reste éditable ; DLSS est activé et Texte IG désactivé à l’application de ce preset.
 - Les trois presets spécialisés utilisent Bunny et Motion Repair, avec les réglages actuels de fabrication. Ils exigent une seule image et refusent un lot incompatible sans modification partielle.
 - Le nombre de plans accepte Auto ou 1 à 6. H3 accepte première / dernière frame ; REF2V conserve les références et leurs rôles.
 - Les réglages de rendu et les paramètres avancés sont accessibles depuis l’inspecteur. Modifier seulement la durée de rendu ne réécrit pas un prompt déjà préparé.
-- Hors application des presets Lèvres et Petits hommes, le DLSS hérite de la source ; il est actif pour les scènes envoyées depuis Histoires et désactivé par défaut pour une nouvelle image ou un nouveau parcours sans réglage source.
-- Texte IG est désactivé par défaut, y compris sur les presets Lèvres et Petits hommes (classique et expérimental). Son activation propose anglais, Gemma 4 local et trois variantes. Le français et le nombre de variantes sont réglables. L’entrée est automatiquement la vidéo H3 produite ; un échec DLSS n’empêche pas Instagram. Le résultat peut être ouvert dans l’atelier Texte IG.
+- Hors application des presets Auto, Lèvres et Petits hommes, le DLSS hérite de la source ; il est actif pour les scènes envoyées depuis Histoires et désactivé par défaut pour une nouvelle image ou un nouveau parcours sans réglage source.
+- Texte IG est désactivé par défaut, y compris sur les presets Auto, Lèvres et Petits hommes. Son activation propose anglais, Gemma 4 local et trois variantes. Le français et le nombre de variantes sont réglables. L’entrée est automatiquement la vidéo H3 produite ; un échec DLSS n’empêche pas Instagram. Le résultat peut être ouvert dans l’atelier Texte IG.
 
 La sélection multiple permet un preset commun, une durée, le nombre de plans, DLSS et Texte IG. Les champs non renseignés restent inchangés. Le retour Annuler restaure les réglages précédents et les résultats dont les entrées correspondent. Les anciennes sorties restent consultables dans l’inspecteur. Une révision par ligne empêche d’écraser une modification concurrente. Le rafraîchissement conserve les brouillons et le focus dans les réglages.
 

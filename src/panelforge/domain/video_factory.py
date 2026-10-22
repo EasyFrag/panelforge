@@ -14,8 +14,10 @@ STAGES = ("plan", "prompt", "video", "dlss", "social")
 LABELS = dict(plan="Plan", prompt="Prompt", video="Vidéo", dlss="DLSS", social="Texte IG")
 DEPENDENCIES = dict(plan=(), prompt=("plan",), video=("prompt",), dlss=("video",), social=("video",))
 TERMINAL = {"succeeded", "skipped", "failed", "cancelled"}
-PRESETS = {"source": "Réglages source", "lips": "Lèvres", "little_men": "Petits hommes",
-           "little_men_experimental": "Petits hommes — expérimental", "custom": "Personnalisé"}
+PRESETS = {"source": "Réglages source", "auto": "Auto", "lips": "Lèvres",
+           "little_men_experimental": "Petits hommes", "custom": "Personnalisé"}
+# Keep historical configurations readable without offering the retired preset.
+PRESET_LABELS = {**PRESETS, "little_men": "Petits hommes (ancien)"}
 ROLES = {
     "unassigned": "Rôle à choisir",
     "first_frame": "Première frame", "last_frame": "Dernière frame",
@@ -27,6 +29,23 @@ ROLE_USES = {**{key: key.removesuffix("_reference") for key in ROLES},
              "keyframe_reference": "keyframe"}
 PLAN_MODEL = "local::unsloth/Qwen3.8-27B-GGUF"
 WRITER_MODEL = "local::unsloth/gemma-4-31B-it-qat-GGUF"
+AUTO_INTENT = (
+    "Analyse l’image de départ : personnages ou sujets, posture, mouvement suggéré, situation, "
+    "échelle, décor et univers visuel. Imagine librement la suite la plus intéressante et crédible "
+    "à partir de cet instant, puis choisis une seule proposition pour le Plan. "
+    "Fais réellement progresser la scène avec une action principale lisible, son évolution et "
+    "un résultat visible, réalisables dans la durée disponible. Prolonge un mouvement déjà "
+    "suggéré plutôt que de recommencer l’action. Des accessoires ou événements nouveaux sont "
+    "permis s’ils servent cette suite et sont introduits de façon compréhensible. "
+    "Conserve l’identité et l’apparence des sujets, les échelles et la direction artistique de "
+    "l’image : matières, couleurs, lumière et logique du monde, y compris sur les nouveaux éléments. "
+    "Un univers stylisé reste stylisé pendant toute l’action ; ne le transforme pas en décor ordinaire. "
+    "Le premier instant correspond à l’image fournie. Un seul plan continu, sans coupe, montage "
+    "ni changement de lieu ; la caméra accompagne l’action sans perdre sa lisibilité. "
+    "Si la situation est ambiguë, choisis une évolution simple étayée par les indices visibles. "
+    "Inscris les éléments visuels à préserver dans les invariants de continuité du Plan, puis "
+    "conserve cette suite et ces invariants dans le Prompt. Aucun dialogue ajouté."
+)
 LIPS_INTENT = (
     "Un unique plan beauté ASMR montre l’application d’un rouge à lèvres orné vers l’image de fin. "
     "Déduire de cette référence l’identité, le cadrage du nez au menton sans les yeux, la lumière, "
@@ -198,7 +217,7 @@ def merge_settings(base, changes):
 
 
 def apply_preset(config, preset, source, *, name=""):
-    if preset not in PRESETS:
+    if preset not in PRESET_LABELS:
         raise ValueError("Preset inconnu.")
     if preset == "source":
         return deepcopy(source)
@@ -215,10 +234,13 @@ def apply_preset(config, preset, source, *, name=""):
                 "little_men_language", "little_men_context"):
         result[key] = fresh[key]
     result.update(mode="h3", preset=preset, preset_origin=preset, shot_count=1,
-                  final_prompt="", intention={"lips": LIPS_INTENT, "little_men": LITTLE_MEN_INTENT,
+                  final_prompt="", intention={"auto": AUTO_INTENT, "lips": LIPS_INTENT, "little_men": LITTLE_MEN_INTENT,
                       "little_men_experimental": LITTLE_MEN_EXPERIMENTAL_INTENT}[preset])
     result["dlss"] = {"enabled": True}
     result["social"] = dict(enabled=False, language="en", variant_count=3, model_id=WRITER_MODEL)
+    if preset == "auto":
+        result["render"] = default_render_setup(9)
+        result["creative_axes"]["dialogue"] = 0
     if preset == "lips":
         result["render"] = default_render_setup(10)
         result["creative_axes"] = dict(scene_life=1, camera=1, extra_motion=1, dialogue=0)
@@ -237,6 +259,11 @@ def apply_preset(config, preset, source, *, name=""):
 def preparation_text(config, *, thanks_selection=None):
     """Build a fresh preparation without rewriting stored intentions or prepared prompts."""
     source = config["intention"] or config["final_prompt"]
+    if (config.get("preset_origin") or config.get("preset")) == "auto":
+        duration = config["render"]["settings"]["duration_seconds"]
+        source = (f"Durée cible et durée totale : {duration:g} secondes. "
+                  "Adapter la progression de l’action et tous les temps du Plan et du Prompt "
+                  "à cette durée.\n\n" + source)
     if config.get("preset") == "lips" or config.get("preset_origin") == "lips":
         duration = config["render"]["settings"]["duration_seconds"]
         source = (f"Durée cible et durée totale du plan : {duration:g} secondes. "
@@ -279,7 +306,7 @@ def validate_shape(config):
     for key in ("profile", "cookbook"):
         if set(config[key]) != {"id", "version"} or not all(isinstance(v, str) and v for v in config[key].values()):
             raise ValueError("Recette de préparation invalide.")
-    if config["mode"] not in {"h3", "ref2v"} or config["preset"] not in PRESETS:
+    if config["mode"] not in {"h3", "ref2v"} or config["preset"] not in PRESET_LABELS:
         raise ValueError("Mode ou preset inconnu.")
     if config.get("little_men_language", "auto") not in LEGACY_THANKS_LANGUAGES:
         raise ValueError("Langue de remerciement inconnue.")

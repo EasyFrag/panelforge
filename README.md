@@ -231,6 +231,63 @@ Le streaming repose sur `stream=true` et des événements SSE internes partagés
 
 Les 20 derniers appels sont conservés dans `workspace/llm_calls.json` : opération, modèle, prompts exacts, réponse, durée, tokens, statut transport, issue applicative, `finish_reason` et erreurs éventuelles. Les images ne sont jamais recopiées dans ce journal ; seules leurs métadonnées et leur SHA-256 sont enregistrées. Ce fichier local peut contenir du texte sensible, reste ignoré par Git et n’est pas exposé par l’API du Lab.
 
+### Diagnostic passif des délais d’images
+
+Les workers KREA2 assisté et Qwen/MiniMax (dont les images H3 des Recettes)
+écrivent `workspace/system/image-timings.jsonl`. La collecte est active au
+démarrage du Lab ; `PANELFORGE_IMAGE_TIMINGS=0` la désactive au prochain
+démarrage. Une modification de code nécessite le redémarrage habituel du Lab,
+à effectuer une fois les travaux en cours terminés.
+
+Les lignes `kind=image` correspondent à un passage de suivi d’un essai : IDs projet/essai/
+exécution, état observé, durées et tailles. Une reprise conserve l’ID d’essai
+mais reçoit un nouveau `trace_id`. Aucun prompt, image, URL, nom de fichier ou
+message d’erreur n’est recopié. Le journal tourne sur trois fichiers de 2 Mio
+maximum chacun (`.jsonl`, `.jsonl.1`, `.jsonl.2`). Les phases sont bornées en
+mémoire, les polls HTTP agrégés, et une seule ligne est écrite après libération
+de la réservation GPU. Les sections critiques KREA2 hors worker produisent
+aussi une ligne `kind=operation` si elles durent au moins 250 ms ou lèvent une
+exception, après libération du verrou. Aucun appel réseau supplémentaire, thread ou dépendance
+n’est ajouté ; une erreur d’écriture diagnostique est ignorée.
+
+Pour comparer un essai fluide et un lent, examiner `catalog.*.lock_wait`,
+`catalog.*.filesystem`, `catalog.*.http`, `download.response`, `download.body`
+(avec le nombre d’octets), puis `asset.content_write_fsync` et
+`asset.metadata_write`. `resource.wait` inclut l’admission et la protection
+thermique ; `queue_wait_ms` mesure l’attente avant ce passage du worker, depuis
+l’horodatage persistant. Une reprise utilise `queue_age_ms` à la place.
+
+Le schéma 2 précise les attentes locales de KREA2. Dans `phases`,
+`krea2.service.render.{claim,submitting,running,finish,release}.lock_wait`
+mesure l’attente du verrou du service ; `.lock_held` mesure sa détention.
+Les opérations lentes portent le nom de leur section critique dans `operation`,
+notamment `krea2.service.render_queue` (lecture de la file par l’interface) et
+`krea2.service.process_next_render` (sélection du prochain rendu).
+`lock_id` identifie le verrou dans le processus ; `process_id`, `thread_id` et
+`monotonic_start_ms + start_ms/end_ms` permettent de rapprocher les intervalles
+des threads d’un même processus. Le journal est écrit à la fin des opérations :
+l’ordre des lignes n’est donc pas celui de leur début.
+
+Dans `aggregates`, `projects.*.lock_wait/lock_held` mesure le verrou du store.
+`projects.list.enumerate` compte les entrées parcourues et les projets trouvés ;
+`projects.list.load` compte les projets effectivement chargés.
+`projects.read` sépare la lecture des JSON de `projects.decode` (JSON et objets
+du domaine). `projects.serialize/encode`, `projects.write.flush`,
+`projects.write.fsync` et `projects.write.replace` détaillent l’enregistrement.
+Les lectures répétées sont agrégées (nombre, durée cumulée, maximum), sans ligne
+par projet ni lecture supplémentaire. `cpu_ms` mesure le CPU consommé par le
+thread dans la phase ; un écart avec la durée écoulée peut aussi venir d’un
+verrou, de l’ordonnancement ou du GIL, et ne prouve pas une attente disque.
+Les intervalles des agrégats couvrent plusieurs appels ; utiliser les phases
+individuelles du verrou de service pour corréler précisément une contention.
+Les phases utilisent une horloge monotone et peuvent s’imbriquer : leurs durées
+ne s’additionnent pas toutes. Les agrégats fournissent nombre, cumul, maximum
+et début/fin ; le cumul des polls exclut les pauses entre eux.
+`server_execution_ms`, lorsqu’il existe dans l’historique ComfyUI, utilise
+uniquement ses horodatages serveur. Une réponse HTTP lente ne suffit pas à
+accuser le réseau : elle inclut aussi l’attente côté serveur. Les temps LLM
+restent dans `llm_calls.json`.
+
 ## Architecture
 
 - `domain` : assets, recettes, runs, sessions et compositions/révisions immuables ;

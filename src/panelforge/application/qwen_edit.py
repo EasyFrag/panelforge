@@ -20,6 +20,7 @@ from .prompt_lab import (CompletionRequest, ImageInput, StreamEventKind, LlmCall
 from .production_resources import ResourceWaitCancelled
 from . import qwen_edit_assistance as assistance
 from . import story_thumbnail_assistance as thumbnail_assistance
+from .image_timings import annotate, image_trace, phase, queue_age, timed_lease
 
 
 class QwenEditConflict(ValueError):
@@ -58,7 +59,8 @@ def _new_stage(index, source_asset_id, *, settings=None, model_id="", mode="edit
 class QwenEditService:
     def __init__(self, *, gateway, workflow, comfy, assets, projects, images, exporter=None,
                  edit_images=None, retouch_compositor=None, work_coordinator=None,
-                 run_timeout=3600, poll_interval=1, policy=qwen_policy, prompting=assistance):
+                 run_timeout=3600, poll_interval=1, policy=qwen_policy, prompting=assistance,
+                 image_timings=None):
         self.policy, self.assistance = policy, prompting
         self.engine, self.label = policy.ENGINE, policy.LABEL
         self.gateway, self.workflow, self.comfy = gateway, workflow, comfy
@@ -66,6 +68,7 @@ class QwenEditService:
         self.edit_images, self.retouch_compositor = edit_images, retouch_compositor
         self.exporter, self.work_coordinator = exporter, work_coordinator
         self.run_timeout, self.poll_interval = run_timeout, poll_interval
+        self.image_timings = image_timings
         self._lock = RLock()
         self._wake, self._stop = Event(), Event()
         self._worker = None
@@ -643,20 +646,28 @@ class QwenEditService:
         with self._lock:
             project = self.projects.get(project_id)
             _attempt(_stage(project, stage_id), attempt_id).update(changes)
-            return self._save(project)
+            result = self._save(project)
+            annotate(**{key: changes[key] for key in ("status", "execution_id") if key in changes})
+            return result
 
     def execute_attempt(self, project_id, stage_id, attempt_id):
+        with image_trace(self.image_timings, engine=self.engine, project_id=project_id, attempt_id=attempt_id):
+            return self._execute_attempt_tracked(project_id, stage_id, attempt_id)
+
+    def _execute_attempt_tracked(self, project_id, stage_id, attempt_id):
         cancelled = lambda: (self._stop.is_set() or self._attempt_record(project_id, stage_id, attempt_id)["status"] == "cancelled")
         try:
             with self._lock:
                 project = self.projects.get(project_id)
                 attempt = _attempt(_stage(project, stage_id), attempt_id)
+                annotate(status=attempt["status"], execution_id=attempt.get("execution_id"))
+                queue_age(attempt.get("created_at"), resumed=bool(attempt.get("execution_id")))
                 # Admission must reuse the queued requirement, even after a rename.
                 # Older saved attempts predate this snapshot field.
                 operation = attempt.get("work_operation", self.label + " · " + project["name"])
             lease = (self.work_coordinator.lease(attempt_id, ComputeResource.REMOTE_GPU, ProductionWorkload.IMAGE_RENDER,
                      operation, cancelled=cancelled) if self.work_coordinator else nullcontext())
-            with lease:
+            with timed_lease(lease):
                 self._render(project_id, stage_id, attempt_id)
         except ResourceWaitCancelled:
             return
@@ -697,11 +708,12 @@ class QwenEditService:
             guide_upload = None
             if guide:
                 source = render_values[0]
-                payload = self.images.prepare_guide(
-                    self.assets.read_bytes(source["asset_id"]),
-                    self.assets.read_bytes(guide["mask_asset_id"]),
-                    tuple(attempt["dimensions"]),
-                )
+                with phase("input.prepare_guide"):
+                    payload = self.images.prepare_guide(
+                        self.assets.read_bytes(source["asset_id"]),
+                        self.assets.read_bytes(guide["mask_asset_id"]),
+                        tuple(attempt["dimensions"]),
+                    )
                 result = self.comfy.upload_image(payload, filename=f"{attempt_id}-guide.png",
                                                  subfolder=f"panelforge/{self.engine}-edit")
                 guide_upload = result.workflow_value
@@ -709,9 +721,11 @@ class QwenEditService:
             for ref in render_values:
                 if self._stop.is_set() or self._attempt_record(project_id, stage_id, attempt_id)["cancel_requested"]:
                     return
-                content = self.assets.read_bytes(ref["asset_id"])
-                dimensions = tuple(attempt["dimensions"]) if ref["id"] == "source" else settings.dimensions(self.images.dimensions(content))
-                prepared = self.images.prepare(content, dimensions)
+                with phase("input.read"):
+                    content = self.assets.read_bytes(ref["asset_id"])
+                with phase("input.prepare"):
+                    dimensions = tuple(attempt["dimensions"]) if ref["id"] == "source" else settings.dimensions(self.images.dimensions(content))
+                    prepared = self.images.prepare(content, dimensions)
                 result = self.comfy.upload_image(prepared, filename=f"{attempt_id}-{len(uploaded) + 1}.png", subfolder=f"panelforge/{self.engine}-edit")
                 uploaded.append(result.workflow_value)
             graph = self.workflow.build(images=uploaded, prompt=attempt["prompt"], settings=settings,
@@ -723,7 +737,8 @@ class QwenEditService:
                 if current["cancel_requested"] or self._stop.is_set():
                     return
                 self._attempt_update(project_id, stage_id, attempt_id, status="submitting", workflow_sha256=digest)
-            execution_id = self.comfy.submit_workflow(graph)
+            with phase("comfy.submit"):
+                execution_id = self.comfy.submit_workflow(graph)
             self._attempt_update(project_id, stage_id, attempt_id, execution_id=execution_id, status="running", started_at=_now())
         else:
             execution_id = attempt["execution_id"]
@@ -742,7 +757,8 @@ class QwenEditService:
                 if output:
                     file = output[0]
                     content = self.comfy.download_output(filename=file["filename"], subfolder=file.get("subfolder", ""), folder_type=file.get("type", "output"))
-                    raw = self.images.normalize_source(content)
+                    with phase("output.normalize"):
+                        raw = self.images.normalize_source(content)
                     raw_asset = self.assets.create(raw, media_type="image/png", source_run_id=project_id)
                     finished = raw
                     finish = deepcopy(attempt.get("finish", {"mode": "raw", "strength": 0}))
@@ -752,8 +768,9 @@ class QwenEditService:
                         try:
                             if self.retouch_compositor is None:
                                 raise ValueError(f"La finition couleur {self.label} n’est pas configurée.")
-                            finished = self.retouch_compositor.harmonize(
-                                self.assets.read_bytes(source_asset_id), raw, strength=finish.get("strength", 55))
+                            with phase("output.color_finish"):
+                                finished = self.retouch_compositor.harmonize(
+                                    self.assets.read_bytes(source_asset_id), raw, strength=finish.get("strength", 55))
                             finish["status"] = "applied"
                         except Exception as error:
                             # The optional local finish must never discard a valid Qwen generation.

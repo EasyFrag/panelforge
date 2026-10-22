@@ -13,6 +13,7 @@ import tempfile
 from time import sleep
 import uuid
 from typing import Any
+from panelforge.application.image_timings import phase, timed
 
 from panelforge.domain import (
     Asset,
@@ -85,6 +86,7 @@ class LocalAssetStore:
         self._id_factory = id_factory or _new_asset_id
         self._external_roots = tuple(Path(root).resolve() for root in external_roots)
 
+    @timed("asset.create")
     def create(
         self,
         content: bytes,
@@ -100,10 +102,12 @@ class LocalAssetStore:
         asset_id = self._id_factory()
         _require_safe_id(asset_id, "generated asset_id")
         asset_dir = self._entry_dir(self._assets_root, asset_id)
+        with phase("asset.hash"):
+            content_sha256 = _sha256(content)
         asset = Asset(
             asset_id=asset_id,
             media_type=media_type,
-            content_sha256=_sha256(content),
+            content_sha256=content_sha256,
             size_bytes=len(content),
             storage_key=f"assets/{asset_id}/content.bin",
             source_run_id=source_run_id,
@@ -112,11 +116,14 @@ class LocalAssetStore:
         content_path = asset_dir / "content.bin"
         metadata_path = asset_dir / "asset.json"
         try:
-            with content_path.open("xb") as stream:
-                stream.write(content)
-                stream.flush()
-                os.fsync(stream.fileno())
-            _atomic_write(metadata_path, _json_bytes(_asset_to_dict(asset)))
+            with phase("asset.content_write_fsync") as metrics:
+                with content_path.open("xb") as stream:
+                    stream.write(content)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                metrics["bytes"] = len(content)
+            with phase("asset.metadata_write"):
+                _atomic_write(metadata_path, _json_bytes(_asset_to_dict(asset)))
         except BaseException:
             metadata_path.unlink(missing_ok=True)
             content_path.unlink(missing_ok=True)
