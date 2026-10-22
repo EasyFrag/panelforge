@@ -4,9 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20261019.cleanup1">
+  <link rel="stylesheet" href="/static/lab.css?v=20261022.patch1">
   <script src="/static/lab.js?v=20260929.storyv2" defer></script>
   <script src="/static/network-mode.js?v=20260928.1" defer></script>
+  <script src="/static/instance-info.js?v=20261022.patch1" defer></script>
   <script src="/static/work-queue.js?v=20261001.thermal-scale1" defer></script>
   <script src="/static/lab-core.js?v=20261019.cleanup1" defer></script>
   <link rel="stylesheet" href="/static/stories.css?v=20260927.editions1">
@@ -77,6 +78,7 @@
     <div class="brand-cluster">
       <a class="brand" href="/"><b>PF</b><span>PanelForge <small>Lab</small></span></a>
       <span id="network-mode" class="network-mode" hidden></span>
+      <button id="instance-info-open" class="runtime-button" type="button" aria-haspopup="dialog" aria-controls="instance-info">Instance</button>
     </div>
     <nav class="lab-nav" aria-label="Ateliers">
       <button class="active" type="button" data-lab-view="change-view">Image Lab</button>
@@ -110,6 +112,12 @@
 
     </div>
   </header>
+  <dialog id="instance-info" class="instance-info" aria-labelledby="instance-info-title">
+    <form method="dialog"><button class="runtime-button" aria-label="Fermer les informations d’instance">Fermer</button></form>
+    <h2 id="instance-info-title">Instance PanelForge</h2>
+    <p id="instance-info-status" role="status" aria-live="polite"></p>
+    <dl id="instance-info-fields"></dl>
+  </dialog>
 
 
 

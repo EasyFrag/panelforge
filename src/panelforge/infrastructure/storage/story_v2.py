@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 from threading import RLock
 from .local import _atomic_write, _json_bytes
+from .project_index import load_project_ids, save_indexed_project
 
 class LocalStoryV2Store:
     def __init__(self, workspace):
@@ -14,7 +15,7 @@ class LocalStoryV2Store:
         if not isinstance(identity, str) or not re.fullmatch(r"storyv2-[a-f0-9]{32}", identity):
             raise ValueError("Identifiant Histoire V2 invalide.")
         path = self.root / (identity + ".json")
-        if path.is_symlink():
+        if path.is_symlink() or not path.resolve().is_relative_to(self.root):
             raise ValueError("Lien de projet interdit.")
         return path
 
@@ -27,18 +28,12 @@ class LocalStoryV2Store:
 
     def list(self):
         with self._lock:
-            path = self.root / "index.json"
-            ids = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+            ids = load_project_ids(self.root, self._path, self.get)
             return sorted([self.get(i) for i in ids], key=lambda p:p["updated_at"], reverse=True)
 
     def save(self, value):
         with self._lock:
-            self.root.mkdir(parents=True, exist_ok=True)
-            _atomic_write(self._path(value["id"]), _json_bytes(value))
-            path = self.root / "index.json"
-            ids = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-            if value["id"] not in ids:
-                _atomic_write(path, _json_bytes([*ids, value["id"]]))
+            save_indexed_project(self.root, value, self._path, self.get)
 
     def preferences(self):
         with self._lock:

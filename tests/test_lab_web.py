@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -542,6 +543,49 @@ class LabWebTest(unittest.TestCase):
         self.assertNotIn('window.PanelForgeVideoLab.prefill({', ref2v_script.text)
         self.assertIn('"video-lab": "social-lab"', navigation.text)
         self.assertIn('PanelForgeLabNavigation', navigation.text)
+
+    def test_instance_identity_is_fixed_at_construction_and_not_cached(self):
+        info = {"version": "2.0.0", "git_commit": "boot-commit", "source_root": "local-source"}
+        app = create_app(self.runner, instance_info=info)
+        info["git_commit"] = "later-commit"
+        with TestClient(app) as client:
+            response = client.get("/api/instance")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers["cache-control"], "no-store")
+            self.assertEqual(response.json(), {"version": "2.0.0", "git_commit": "boot-commit", "source_root": "local-source", "available": True})
+        self.assertEqual(self.client.get("/api/instance").json(), {"available": False})
+
+    def test_asset_content_reads_once_and_still_rejects_tampering_in_full_and_range_requests(self):
+        read_bytes = Path.read_bytes
+        for external in (False, True):
+            with self.subTest(external=external):
+                root = Path(self.temporary_directory.name)
+                self.runner.assets = LocalAssetStore(root, external_roots=(root,))
+                content = b"0123456789"
+                if external:
+                    path = root / "external.mp4"
+                    path.write_bytes(content)
+                    asset = self.runner.assets.register_file(path, "video/mp4")
+                else:
+                    asset = self.runner.assets.create(content, "video/mp4")
+                    path = root / "assets" / asset.asset_id / "content.bin"
+                url = f"/api/assets/{asset.asset_id}/content"
+                for headers in ({}, {"Range": "bytes=2-5"}):
+                    reads = []
+
+                    def count_reads(file):
+                        if file.resolve() == path.resolve():
+                            reads.append(file)
+                        return read_bytes(file)
+
+                    with patch.object(Path, "read_bytes", count_reads):
+                        response = self.client.get(url, headers=headers)
+                    self.assertEqual(response.status_code, 206 if headers else 200)
+                    self.assertEqual(response.content, b"2345" if headers else content)
+                    self.assertEqual(len(reads), 1)
+                path.write_bytes(b"9876543210")  # Same size: the digest must still be verified.
+                for headers in ({}, {"Range": "bytes=2-5"}):
+                    self.assertEqual(self.client.get(url, headers=headers).status_code, 422)
 
     def test_asset_content_supports_full_and_partial_byte_reads(self):
         content = b"0123456789"

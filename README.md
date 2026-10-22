@@ -2,6 +2,27 @@
 
 Version majeure actuelle : **[PanelForge 2.0.0](docs/releases/2.0.0.md)** — 7 octobre 2026.
 
+Le bouton **Instance** dans la barre supérieure indique la version, le commit et
+la branche Git, les modifications applicatives locales, les dossiers du code et du
+workspace, le PID et l’heure de construction de l’application. Ces informations
+sont capturées une fois par `scripts/run_lab.py` et exposées par `/api/instance`
+sans cache. L’empreinte SHA-256 porte sur les sources Python/JS/CSS/HTML et
+`pyproject.toml` au démarrage, hors données runtime, médias et configuration privée.
+Elle n’inclut pas les workflows et ne suit pas les modifications faites après le
+démarrage. Git peut être absent : les champs concernés sont alors indisponibles.
+
+Les médias sont lus et vérifiés une seule fois par requête de contenu, y compris
+pour une réponse HTTP Range. L’intégrité porte toujours sur le fichier entier ;
+ce changement ne constitue pas une lecture partielle sur disque.
+
+Les créations de projets **Recettes** et **Histoire V2** enregistrent une intention
+dans `pending-index.json` avant d’écrire le projet puis son index. Après une
+interruption du processus, la prochaine liste ou sauvegarde termine l’indexation
+du projet déjà écrit, en conservant ses résultats et identifiants de générations.
+Un journal invalide reste en place et provoque une erreur explicite. Ce mécanisme
+protège les nouvelles écritures ; il ne recherche pas d’anciens fichiers orphelins
+et ne coordonne pas plusieurs processus écrivant dans le même workspace.
+
 PanelForge est un atelier local pour construire un canon visuel cohérent, qualifier des recettes ComfyUI puis produire des panels narratifs à partir d’assets approuvés.
 
 Le projet reste un monolithe modulaire : ComfyUI sert à découvrir manuellement les workflows, tandis que PanelForge les exécute comme des recettes explicites, versionnées et traçables.

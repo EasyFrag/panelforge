@@ -16,6 +16,7 @@ import asyncio
 import base64
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
+from copy import deepcopy
 from datetime import UTC, datetime
 from dataclasses import asdict
 from panelforge.domain.h3_bunny import BUNNY_RECIPE_ID, H3BunnySettings, bunny_geometry
@@ -51,6 +52,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from panelforge import __version__
 from panelforge.application.krea2_edit import RetouchConflictError
 
 from panelforge.application import (
@@ -819,6 +821,7 @@ def create_app(
     static_directory: Path | None = None,
     video_preview_connector: Callable[[str], Any] | None = None,
     runtime_monitor_connector: Callable[[str], Any] | None = None,
+    instance_info: dict[str, Any] | None = None,
 ) -> FastAPI:
     """Create an app around injected application services."""
     if network_mode not in (None, "lan", "tailscale"):
@@ -827,6 +830,7 @@ def create_app(
     index_path = static_root / "index.html"
     if not index_path.is_file():
         raise FileNotFoundError(index_path)
+    instance_snapshot = deepcopy(instance_info) if instance_info is not None else None
 
     @asynccontextmanager
     async def lifespan(_app):
@@ -870,7 +874,7 @@ def create_app(
             if krea2_assisted is not None:
                 await asyncio.to_thread(krea2_assisted.stop_render_worker)
 
-    app = FastAPI(title="PanelForge Lab", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="PanelForge Lab", version=__version__, lifespan=lifespan)
     from .story_v2_web import story_v2_router
     app.include_router(story_v2_router(story_v2))
     from .cooking_recipes_web import cooking_recipes_router
@@ -918,6 +922,11 @@ def create_app(
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
         return FileResponse(index_path, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/instance")
+    def instance_identity(response: Response) -> dict[str, Any]:
+        response.headers["Cache-Control"] = "no-store"
+        return {**(instance_snapshot or {}), "available": instance_snapshot is not None}
 
     @app.get("/api/network-mode")
     def network_configuration() -> dict[str, str | None]:
@@ -1319,8 +1328,7 @@ def create_app(
     @app.get("/api/assets/{asset_id}/content")
     def asset_content(asset_id: str, request: Request) -> Response:
         try:
-            asset = runner.assets.get(asset_id)
-            content = runner.assets.read_bytes(asset_id)
+            asset, content = runner.assets.read_verified(asset_id)
         except (KeyError, FileNotFoundError) as error:
             raise HTTPException(status_code=404, detail="asset not found") from error
         except ValueError as error:

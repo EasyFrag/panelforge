@@ -14,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
 from panelforge.infrastructure.network_profiles import resolve_network_configuration, describe_network
+from panelforge.infrastructure.instance_info import capture_instance_info
 from panelforge.infrastructure.network_transports import (
     direct_http_opener, direct_preview_connection, direct_thermal_connection, direct_dlss_connection,
 )
@@ -284,6 +285,7 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 
 def build_app(args: argparse.Namespace):
+    instance_info = capture_instance_info(PROJECT_ROOT, args.workspace)
     explicit_network = getattr(args, "network_mode", None) is not None
     http_options = {"opener": direct_http_opener()} if explicit_network else {}
     llm_options = {"trust_env": False} if explicit_network else {}
@@ -735,6 +737,7 @@ def build_app(args: argparse.Namespace):
         mobile_server = LoopbackMobileServer(create_mobile_app(mobile), mobile_port)
     return create_app(
         runner,
+        instance_info=instance_info,
         video_factory=video_factory,
         image_transitions=image_transitions,
         mobile_server=mobile_server,

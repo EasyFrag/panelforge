@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import re
 from threading import RLock
-from .local import _atomic_write, _json_bytes
+from .project_index import load_project_ids, save_indexed_project
 
 
 class LocalCookingRecipeStore:
@@ -28,15 +28,9 @@ class LocalCookingRecipeStore:
 
     def list(self):
         with self._lock:
-            index = self.root / "index.json"
-            ids = json.loads(index.read_text(encoding="utf-8")) if index.exists() else []
+            ids = load_project_ids(self.root, self._path, self.get)
             return sorted([self.get(i) for i in ids], key=lambda p:p["updated_at"], reverse=True)
 
     def save(self, p):
         with self._lock:
-            self.root.mkdir(parents=True, exist_ok=True)
-            _atomic_write(self._path(p["id"]), _json_bytes(p))
-            index = self.root / "index.json"
-            ids = json.loads(index.read_text(encoding="utf-8")) if index.exists() else []
-            if p["id"] not in ids:
-                _atomic_write(index, _json_bytes([*ids, p["id"]]))
+            save_indexed_project(self.root, p, self._path, self.get)

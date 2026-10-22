@@ -18,6 +18,12 @@
 }
 
 * { box-sizing: border-box; }
+.instance-info { width: min(42rem, calc(100vw - 2rem)); max-height: 85vh; overflow: auto; border: 1px solid var(--line); border-radius: 12px; padding: 1.25rem; color: var(--ink); background: var(--panel); }
+.instance-info::backdrop { background: rgb(0 0 0 / 35%); }
+.instance-info form { float: right; }
+.instance-info p { color: var(--muted); }
+.instance-info dt { margin-top: .8rem; font-weight: 600; }
+.instance-info dd { margin: .2rem 0 0; overflow-wrap: anywhere; }
 body { margin: 0; min-width: 320px; background: radial-gradient(circle at 80% 0, var(--workshop-glow), transparent 32rem), var(--bg); }
 body[data-workshop="i2v-direct"] {
   --workshop-accent: #4269a8;

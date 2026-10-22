@@ -166,12 +166,12 @@ class LocalAssetStore:
 
     def get(self, asset_id: str) -> Asset:
         """Load metadata and verify the stored content's size and digest."""
-        asset, _ = self._read_verified(asset_id)
+        asset, _ = self.read_verified(asset_id)
         return asset
 
     def verified_path(self, asset_id: str) -> Path:
         """Return an immutable source path only after the usual integrity checks."""
-        self._read_verified(asset_id)
+        self.read_verified(asset_id)
         directory = self._entry_dir(self._assets_root, asset_id)
         metadata = _read_json_object(directory / "asset.json")
         return (self._external_path(metadata["external_path"]) if metadata.get("schema_version") == 2
@@ -179,10 +179,11 @@ class LocalAssetStore:
 
     def read_bytes(self, asset_id: str) -> bytes:
         """Return content only after validating it against ``asset.json``."""
-        _, content = self._read_verified(asset_id)
+        _, content = self.read_verified(asset_id)
         return content
 
-    def _read_verified(self, asset_id: str) -> tuple[Asset, bytes]:
+    def read_verified(self, asset_id: str) -> tuple[Asset, bytes]:
+        """Return metadata and content from a single verified read."""
         asset_dir = self._entry_dir(self._assets_root, asset_id)
         metadata_path = asset_dir / "asset.json"
         content_path = asset_dir / "content.bin"
