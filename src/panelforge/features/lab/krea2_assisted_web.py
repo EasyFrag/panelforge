@@ -11,7 +11,7 @@ from urllib.parse import quote
 from time import perf_counter
 from typing import Annotated, Any, Literal
 from panelforge.application.krea2_restage import DEFAULT_INSTRUCTION as RESTAGING_INSTRUCTION, RestagingConflictError
-from fastapi import File, Form, HTTPException, UploadFile, status
+from fastapi import File, Form, HTTPException, UploadFile, status, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
@@ -659,6 +659,15 @@ def krea2_assisted_router(*, image_catalogs, krea2_assisted: Krea2AssistedServic
                 settings=_krea2_assisted_settings(draft),
             )
             return {"project": serialize_krea2_assisted_project(project)}
+
+    @router.get("/api/image-lab/krea2-assisted/project-summaries")
+    def list_krea2_project_summaries(limit: int = Query(30, ge=0, le=100)) -> dict[str, object]:
+        service = _require_krea2_assisted(krea2_assisted)
+        with http_errors("project not found"):
+            rows = service.summaries(limit)
+            return {"projects": [dict(asdict(row), preview_url=(
+                f"/api/assets/{quote(row.preview_asset_id, safe='')}/thumbnail?v=1"
+                if row.preview_asset_id else None)) for row in rows]}
 
     @router.get("/api/image-lab/krea2-assisted/projects")
     def list_krea2_assisted_projects(limit: int = 30) -> dict[str, object]:

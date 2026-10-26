@@ -254,6 +254,18 @@ class MachineWorkCoordinator:
         with self._lock:
             return owner_id in self._activities
 
+    def activity_statuses(self) -> dict[str, dict[str, object]]:
+        """Cheap queue/progress projection, without temperature probes or history I/O."""
+        owners, waiters = self.leases.owners(), self.leases.waiters()
+        result = {}
+        for resource in ComputeResource:
+            owner = owners.get(resource)
+            if owner:
+                result[owner.job_id] = self._activity_view(owner.job_id, owner.requirement, 0)
+            for position, waiter in enumerate(waiters.get(resource, ()), 1):
+                result[waiter.job_id] = self._activity_view(waiter.job_id, waiter.requirement, position)
+        return result
+
     def report_progress(
         self,
         owner_id: str,

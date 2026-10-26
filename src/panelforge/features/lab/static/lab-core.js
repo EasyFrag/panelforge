@@ -5,6 +5,7 @@
   const elements = {
     changeView: $("#change-view-workspace"),
     krea2AssistedLab: $("#krea2-assisted-lab-workspace"),
+    creationBatch: $("#creation-batch-workspace"),
     krea2EditLab: $("#krea2-edit-lab-workspace"),
     qwenEditLab: $("#qwen-edit-lab-workspace"),
     minimaxEditLab: $("#minimax-edit-lab-workspace"),
@@ -30,6 +31,7 @@
   const workspaces = new Map([
     ["change-view", elements.changeView],
     ["krea2-assisted-lab", elements.krea2AssistedLab],
+    ["creation-batch", elements.creationBatch],
     ["krea2-edit-lab", elements.krea2EditLab], ["i2v-direct", elements.i2vDirect],
     ["qwen-edit-lab", elements.qwenEditLab],
     ["minimax-edit-lab", elements.minimaxEditLab],
@@ -55,6 +57,7 @@
     const imageLabActive = [
       "change-view",
       "krea2-assisted-lab",
+      "creation-batch",
       "krea2-edit-lab",
       "qwen-edit-lab",
       "minimax-edit-lab",
@@ -82,6 +85,7 @@
       button.classList.toggle("active", button.dataset.videoLabMode === view);
     });
     try { window.sessionStorage.setItem(navigationKey, view); } catch (_) { /* navigation works without browser storage */ }
+    window.PanelForgeWorkshops?.activate(view, workspaces.get(view), () => activeView === view);
     return true;
   }
 

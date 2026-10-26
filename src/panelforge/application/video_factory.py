@@ -2,6 +2,8 @@
 from copy import deepcopy
 from threading import Event, RLock, Thread
 from uuid import uuid4
+from .factory_views import descriptor, has_errors, item_tab, list_row, ordered_rows
+from panelforge.domain.factory_cycle import delivered
 
 from panelforge.domain.localized_speech import THANKS_LANGUAGES
 from panelforge.domain.little_men_languages import make_selection, recent_languages
@@ -106,19 +108,99 @@ class VideoFactoryService:
         machines = deepcopy(getattr(self.adapter, "machines", {}))
         for item in result["items"]:
             if item["status"] == "queued" and not item.get("waiting_reason"):
-                steps = next_steps(item)
-                lane = self.adapter.lane(item, steps[0]) if steps else None
-                machine = machines.get(lane, {})
-                item["waiting_reason"] = ("File en pause" if result["paused"] else
-                    "Refroidissement de la machine" if machine.get("state") in {"cooling", "hot"} else
-                    "Machine en pause" if machine.get("paused") else
-                    "Machine indisponible · vérifier le moniteur" if machine.get("state") == "unavailable" else
-                    "Attend la machine locale" if lane == "local_gpu" else "Attend le serveur")
+                item["waiting_reason"] = self._waiting_reason(item, result["paused"], machines)
         result.update(presets=PRESETS, preset_labels=PRESET_LABELS, thanks_languages=THANKS_LANGUAGES,
                       machines=machines, scheduler_error=self._scheduler_error)
         if self.monitoring:
             result["monitoring"] = self._monitoring_snapshot(result)
         return result
+
+    def _waiting_reason(self, item, paused, machines):
+        steps = next_steps(item)
+        lane = self.adapter.lane(item, steps[0]) if steps else None
+        machine = machines.get(lane, {})
+        return ("File en pause" if paused else
+                "Refroidissement de la machine" if machine.get("state") in {"cooling", "hot"} else
+                "Machine en pause" if machine.get("paused") else
+                "Machine indisponible · vérifier le moniteur" if machine.get("state") == "unavailable" else
+                "Attend la machine locale" if lane == "local_gpu" else "Attend le serveur")
+
+    def summary(self):
+        """Counters only: no recipes, forecasts, copies of outputs or filesystem I/O."""
+        with self._lock:
+            counts = dict.fromkeys(("preparation", "production", "results", "archives"), 0)
+            errors = 0
+            for item in self._state["items"]:
+                counts[item_tab(item)] += 1
+                errors += int(not item.get("archived_at") and has_errors(item))
+            return dict(compact=True, revision=self._state["revision"], paused=self._state["paused"],
+                        counts=counts, error_count=errors, scheduler_error=self._scheduler_error)
+
+    def item_detail(self, identity):
+        with self._lock:
+            item = deepcopy(self._get(identity))
+        item.update(issues=readiness(item["config"]) + item.get("source_issues", []), can_archive=can_archive(item))
+        item["ready"] = not item["issues"]
+        for variant in item["steps"]["social"].get("output", {}).get("variants", []):
+            variant["copy_text"] = variant_text(variant)
+        return item
+
+    def browse(self, *, tab="preparation", filter="all", sort="chronological", offset=0, limit=50,
+               focus=None, detail_revision=None, anchor=False, known_revision=None):
+        if tab not in {"preparation", "production", "results", "archives"} or filter not in {"all", "ready", "incomplete", "failed", "archivable"} or sort not in {"chronological", "newest"}:
+            raise ValueError("Vue de l’usine inconnue.")
+        if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("Pagination invalide.")
+        with self._lock:
+            items = self._state["items"]
+            selected = ordered_rows(items, tab, filter, sort)
+            if anchor and focus:
+                position = next((i for i, item in enumerate(selected) if item["id"] == focus), 0)
+                offset = position // limit * limit
+            offset = min(offset, max(0, (len(selected) - 1) // limit * limit))
+            page = selected[offset:offset + limit]
+            positions = {item["id"]: i + 1 for i, item in enumerate(items)}
+            cache = getattr(self, "_view_descriptors", {})
+            cache = {item["id"]: cache[item["id"]] if item["id"] in cache and cache[item["id"]]["revision"] == item["revision"]
+                     else descriptor(item) for item in items}
+            self._view_descriptors = cache
+            result = self.summary()
+            result.update(page=dict(tab=tab, filter=filter, sort=sort, offset=offset, limit=limit, total=len(selected)),
+                          presets=PRESETS, preset_labels=PRESET_LABELS, thanks_languages=THANKS_LANGUAGES,
+                          machines=deepcopy(getattr(self.adapter, "machines", {})))
+            # Machine availability can change without a persisted item revision.
+            result["waiting_reasons"] = {item["id"]: item.get("waiting_reason") or
+                self._waiting_reason(item, result["paused"], result["machines"])
+                for item in page if item["status"] == "queued"}
+            if known_revision == self._state["revision"] and not anchor:
+                result["unchanged"] = True
+            else:
+                result.update(items=[list_row(item, positions[item["id"]]) for item in page],
+                              inventory=deepcopy(list(cache.values())))
+                for row in result["items"]:
+                    if row["id"] in result["waiting_reasons"]:
+                        row["waiting_reason"] = result["waiting_reasons"][row["id"]]
+            focused = next((item for item in items if item["id"] == focus), None)
+            if focused and focused["revision"] != detail_revision:
+                result["detail"] = self.item_detail(focus)
+            # Forecast all pending work and the full current cycle, not only the page.
+            # Historical delivered items outside that scope cannot delay the queue.
+            if self.monitoring:
+                identities = {item["id"] for item in page} | set((self._state.get("production_cycle") or {}).get("members", {}))
+                if focused:
+                    identities.add(focus)
+                forecast_state = {k: deepcopy(v) for k, v in self._state.items() if k != "items"}
+                forecast_state["items"] = [deepcopy({k: v for k, v in item.items() if k not in {"history", "source_config"}})
+                    for item in items if item["id"] in identities or (
+                        item["status"] != "preparation" and not item.get("archived_at") and not delivered(item))]
+        if self.monitoring:
+            forecast = self._monitoring_snapshot(forecast_state)
+            forecast["items"] = {k: v for k, v in forecast.get("items", {}).items() if k in identities}
+            result["monitoring"] = forecast
+        return result
+
+    def _response(self, compact):
+        return self.summary() if compact else self.snapshot()
 
     def _monitoring_snapshot(self, state, **options):
         try:
@@ -154,7 +236,7 @@ class VideoFactoryService:
                          steps={name: step["status"] for name, step in item["steps"].items()})
                     for item in self._state["items"] if item["id"] in selected]
 
-    def receive(self, entries):
+    def receive(self, entries, *, compact=False):
         if not entries or len(entries) > 500:
             raise ValueError("Envoi vide ou trop volumineux.")
         with self._lock:
@@ -189,9 +271,9 @@ class VideoFactoryService:
                 added.append(item["id"])
             self._state["items"].extend(prepared)
             self._save()
-            return dict(ids=added, added=len(prepared), existing=existing_items, state=self.snapshot())
+            return dict(ids=added, added=len(prepared), existing=existing_items, state=self._response(compact))
 
-    def update(self, identities, revisions, changes=None, preset=None, replacements=None):
+    def update(self, identities, revisions, changes=None, preset=None, replacements=None, *, compact=False):
         with self._lock:
             items = self._selected(identities, revisions)
             if any(i["status"] != "preparation" or i.get("archived_at") for i in items):
@@ -252,9 +334,9 @@ class VideoFactoryService:
                 old.clear()
                 old.update(replacement)
             self._save(items)
-            return dict(state=self.snapshot(), undo=undo, revisions={i["id"]: i["revision"] for i in items})
+            return dict(state=self._response(compact), undo=undo, revisions={i["id"]: i["revision"] for i in items})
 
-    def launch(self, identities, revisions):
+    def launch(self, identities, revisions, *, compact=False):
         with self._lock:
             items = self._selected(identities, revisions)
             for item in items:
@@ -276,15 +358,18 @@ class VideoFactoryService:
                 settle(item)
             self._save(items)
         self._wake.set()
-        return self.snapshot()
+        return self._response(compact)
 
-    def action(self, action, identities=(), revisions=None, *, active_runs=None):
+    def action(self, action, identities=(), revisions=None, *, active_runs=None, compact=False):
         cancel = []
         removal_stages = {}
         if action == "remove":
             with self._lock:
-                candidates = deepcopy(self._selected(list(identities),
-                    {identity: self._get(identity)["revision"] for identity in identities} if revisions is not None else None))
+                selected = self._selected(list(identities),
+                    {identity: self._get(identity)["revision"] for identity in identities} if revisions is not None else None)
+                # Archiving already requires finished work and delivery. Removing
+                # those records must not wait on renderer locks or old child jobs.
+                candidates = [deepcopy(item) for item in selected if not item.get("archived_at")]
             # Child status checks may touch the renderer; never hold the factory
             # lock while waiting on another service.
             pending_stage = getattr(self.adapter, "pending_removal_stage", lambda item: None)
@@ -410,7 +495,7 @@ class VideoFactoryService:
         for item in cancel:
             Thread(target=self._cancel_external, args=(item,), daemon=True).start()
         self._wake.set()
-        return self.snapshot()
+        return self._response(compact)
 
     def _cancel_external(self, item):
         try:
@@ -422,7 +507,7 @@ class VideoFactoryService:
                     current["waiting_reason"] = f"Arrêt demandé : {error}"
                     self._save((current,))
 
-    def refresh_source(self, identity, revisions):
+    def refresh_source(self, identity, revisions, *, compact=False):
         with self._lock:
             item = self._selected([identity], revisions)[0]
             if item["status"] != "preparation" or item["source"].get("kind") != "episode":
@@ -438,9 +523,9 @@ class VideoFactoryService:
             for stage, output in entry.get("outputs", {}).items():
                 item["steps"][stage].update(status="succeeded", output=deepcopy(output))
             self._save((item,))
-        return self.snapshot()
+        return self._response(compact)
 
-    def reorder(self, identities, expected_revision):
+    def reorder(self, identities, expected_revision, *, compact=False):
         with self._lock:
             if self._state["revision"] != expected_revision:
                 raise FactoryConflict("La file a changé. Actualisez son ordre.")
@@ -449,7 +534,7 @@ class VideoFactoryService:
             self._state["items"] = [self._get(identity) for identity in identities]
             self._save()
         self._wake.set()
-        return self.snapshot()
+        return self._response(compact)
 
     def start(self):
         with self._lock:
@@ -530,7 +615,7 @@ class VideoFactoryService:
             self.monitoring.record(self.adapter, measured, "export")
         self._wake.set()
 
-    def retry_delivery(self, identity):
+    def retry_delivery(self, identity, *, compact=False):
         if self.outputs is None:
             raise ValueError("Le dossier de sortie n’est pas configuré.")
         with self._lock:
@@ -545,7 +630,7 @@ class VideoFactoryService:
             delivery.update(status="queued", error=None)
             self._save((item,))
         self._wake.set()
-        return self.snapshot()
+        return self._response(compact)
 
     def result_text(self, identity):
         with self._lock:

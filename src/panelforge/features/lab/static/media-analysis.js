@@ -283,4 +283,7 @@
     state.extraRefs.push(...files.map(f=>frameFor(f))); drawReferences();
   });
   update();
+  document.addEventListener("panelforge:workshop-ready", event => {
+    if (event.detail.view === "media-analysis") initialize().catch(error => message(error.message, true));
+  });
 })();

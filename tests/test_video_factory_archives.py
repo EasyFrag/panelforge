@@ -168,6 +168,37 @@ class FactoryArchivesTest(unittest.TestCase):
             self.service.action("restore", *self.selection(self.first["id"], self.second["id"]))
         self.assertEqual(self.service._state, before)
 
+    def test_bulk_remove_archives_does_not_consult_old_child_jobs(self):
+        archived = [delivered("Archive " + str(index)) for index in range(500)]
+        for item in archived:
+            item["archived_at"] = "2026-10-26T10:00:00Z"
+        preparation = new_item("Keep", configuration(), {}, "keep")
+        self.service._state["items"] = [preparation, *archived]
+        self.adapter.pending_removal_stage = Mock(side_effect=AssertionError("Renderer unavailable"))
+        app = FastAPI()
+        app.include_router(video_factory_router(self.service, validate_image=lambda _: "image/png"))
+        with TestClient(app) as client:
+            response = client.post("/api/video-factory/actions/remove?compact=true", json=dict(
+                ids=[item["id"] for item in archived],
+                revisions={item["id"]: item["revision"] for item in archived}))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["counts"]["archives"], 0)
+        self.assertEqual(response.json()["counts"]["preparation"], 1)
+        self.assertEqual(self.store.value["items"], [preparation])
+        self.adapter.pending_removal_stage.assert_not_called()
+        self.assertEqual(self.adapter.calls, [])
+
+    def test_mixed_removal_still_checks_unarchived_child_jobs(self):
+        identity = self.first["id"]
+        self.service.action("archive", *self.selection(identity))
+        before = deepcopy(self.service._state)
+        self.adapter.pending_removal_stage = Mock(side_effect=RuntimeError("Child unavailable"))
+        with self.assertRaisesRegex(RuntimeError, "Child unavailable"):
+            self.service.action("remove", *self.selection(identity, self.second["id"]))
+        self.assertEqual(self.adapter.pending_removal_stage.call_count, 1)
+        self.assertEqual(self.adapter.pending_removal_stage.call_args.args[0]["id"], self.second["id"])
+        self.assertEqual(self.service._state, before)
+
     def test_http_archive_restore_and_stale_request_contract(self):
         app = FastAPI()
         app.include_router(video_factory_router(self.service, validate_image=lambda _: "image/png"))

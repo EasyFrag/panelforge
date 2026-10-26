@@ -13,7 +13,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from panelforge.application.image_timings import (
-    MAX_PHASES, annotate, image_trace, observe_history, phase, queue_age, timed_lease,
+    MAX_PHASES, annotate, image_operation, image_trace, observe_history, phase, queue_age, timed_lease,
     timed_lock,
 )
 from panelforge.infrastructure.comfy.client import ComfyHttpClient
@@ -25,6 +25,37 @@ def trace(sink, attempt="attempt-test"):
 
 
 class ImageTimingsTest(unittest.TestCase):
+    def test_aggregate_of_different_project_locks_does_not_claim_one_lock_identity(self):
+        records = []
+        first, second = RLock(), RLock()
+        with trace(records.append):
+            for lock in (first, second, first):
+                with timed_lock(lock, "projects.get", aggregate=True):
+                    pass
+        for name in ("projects.get.lock_wait", "projects.get.lock_held"):
+            group = records[0]["aggregates"][name]
+            self.assertEqual(group["count"], 3)
+            self.assertTrue(group["mixed_locks"])
+            self.assertNotIn("lock_id", group)
+
+    def test_read_operation_reuses_worker_trace_and_filters_fast_standalone_reads(self):
+        clock, records = [0.0], []
+        with patch("panelforge.application.image_timings.time.perf_counter", side_effect=lambda: clock[0]):
+            with image_operation(records.append, "quick"):
+                pass
+            self.assertEqual(records, [])
+            with image_operation(records.append, "slow", project_id="project-test"):
+                clock[0] += 1
+            with trace(records.append):
+                with image_operation(records.append, "nested"):
+                    with phase("projects.read"):
+                        clock[0] += 1
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0]["operation"], "slow")
+        self.assertEqual(records[0]["project_id"], "project-test")
+        self.assertEqual(records[1]["kind"], "image")
+        self.assertEqual([p["name"] for p in records[1]["phases"]], ["projects.read"])
+
     def test_lock_wait_is_distinct_from_hold_and_cpu_time(self):
         clock, cpu_clock, records, events = [0.0], [0.0], [], []
 

@@ -368,6 +368,10 @@
     newArtStyle: null,
     artTarget: "new",
   };
+  let historyRequest = null, historyController = null, historyTimer = null;
+  let historySerial = 0, historyDirty = true;
+  const historyVisible = () => !elements.workspace.hidden && document.visibilityState === "visible";
+  const historyCards = new Map();
   const reasoningTrace = core && typeof core.createReasoningTrace === "function"
     ? core.createReasoningTrace({
       toggle: elements.showReasoning,
@@ -414,7 +418,7 @@
     const v5Selected = ["5.0.0", "6.0.0"].includes(elements.assistanceRecipe.value);
     const libraryReady = state.spec?.prompt_library?.state === "ready";
     const wildcardsReady = state.spec?.wildcard_library?.state === "ready";
-    const createDisabled = value || !llmReady
+    const createDisabled = value || !state.initialized || !llmReady
       || (localInspirationRequired && !libraryReady)
       || (localInspirationRequired && v5Selected && !wildcardsReady);
     elements.create.disabled = createDisabled;
@@ -462,6 +466,7 @@
     renderStatus();
     if (!value && state.project && ((state.renderQueue.items || []).length
       || (state.project.attempts || []).some((attempt) => activeStatuses.has(attempt.status)))) schedulePoll();
+    if (!value) scheduleHistory();
   }
 
   function setNewMessage(message = "", error = true) {
@@ -876,7 +881,9 @@
   }
 
   async function loadRenderQueue() {
-    state.renderQueue = await request("/api/image-lab/krea2-assisted/render-queue");
+    const serial = state.navigationSerial;
+    const queue = await request("/api/image-lab/krea2-assisted/render-queue");
+    if (serial === state.navigationSerial) state.renderQueue = queue;
   }
 
   function clearGuidance() {
@@ -1438,7 +1445,7 @@
         ? "Nouvelle piste créée avec l’image et son prompt. Les anciens échanges ne sont pas repris."
         : target.attempt_id ? "Nouvelle branche créée au point de conversation de cet essai."
           : "Branche retrouvée avec sa conversation et ses réglages.");
-      await loadHistory();
+      invalidateHistory();
     } catch (error) { setMessage(error.message, true); }
     finally {
       setBusy(false);
@@ -1447,23 +1454,41 @@
   }
 
   function renderHistory() {
-    elements.history.replaceChildren();
     elements.historyEmpty.hidden = state.projects.length > 0;
-    state.projects.forEach((project) => {
+    const ids = new Set(state.projects.map(project => project.project_id));
+    for (const [id, card] of historyCards) {
+      if (!ids.has(id)) { card.node.remove(); historyCards.delete(id); }
+    }
+    state.projects.forEach((project, index) => {
+      const signature = JSON.stringify([project.name, project.render_count, project.turn_count, project.preview_url]);
+      const old = historyCards.get(project.project_id);
+      if (old?.signature === signature) {
+        if (elements.history.children[index] !== old.node) elements.history.insertBefore(old.node, elements.history.children[index] || null);
+        return;
+      }
       const item = document.createElement("li");
       const button = document.createElement("button");
       button.type = "button";
       button.className = "krea2-assisted-history-item";
       const title = document.createElement("b"); title.textContent = project.name;
       const meta = document.createElement("small");
-      const outputs = (project.attempts || []).filter((attempt) => attempt.status === "succeeded").length;
-      meta.textContent = `${outputs} rendu(s) · ${(project.turns || []).length} message(s)`;
+      meta.textContent = `${project.render_count} rendu(s) · ${project.turn_count} message(s)`;
       button.append(title, meta);
-      const latest = [...(project.attempts || [])].reverse().find((attempt) => attempt.output_url);
-      if (latest) { const image = document.createElement("img"); image.src = latest.output_url; image.alt = ""; image.loading = "lazy"; button.append(image); }
+      if (project.preview_url) {
+        const image = document.createElement("img"); image.src = project.preview_url; image.alt = "";
+        image.loading = "lazy"; image.decoding = "async";
+        image.addEventListener("error", () => {
+          image.remove();
+          const card = historyCards.get(project.project_id);
+          if (card?.node === item) card.signature = null; // Retry on an explicit refresh.
+        }, { once: true });
+        button.append(image);
+      }
       button.addEventListener("click", () => openProject(project.project_id));
       item.append(button);
-      elements.history.append(item);
+      old?.node.remove();
+      elements.history.insertBefore(item, elements.history.children[index] || null);
+      historyCards.set(project.project_id, { node: item, signature });
     });
   }
 
@@ -1550,17 +1575,55 @@
     elements.historyState.classList.toggle("error", error);
   }
 
-  async function loadHistory() {
-    if (!state.projectRequest) setHistoryMessage("Chargement des projets…");
-    try {
-      const payload = await request("/api/image-lab/krea2-assisted/projects?limit=30");
-      state.projects = payload.projects || [];
-      renderHistory();
-      if (!state.projectRequest) setHistoryMessage();
-    } catch (error) {
-      if (!state.projectRequest) setHistoryMessage(`Projets indisponibles : ${error.message}`, true);
-      throw error;
-    }
+  function scheduleHistory() {
+    if (!historyDirty || historyRequest || historyTimer !== null || !state.initialized || state.busy || !historyVisible()) return;
+    historyTimer = setTimeout(() => {
+      historyTimer = null;
+      if (!state.busy && historyVisible()) loadHistory().catch(() => {});
+    }, 0);
+  }
+
+  function invalidateHistory() {
+    historyDirty = true; historySerial++;
+    scheduleHistory();
+  }
+
+  function historyVisibilityChanged() {
+    historyDirty = true; historySerial++;
+    clearTimeout(historyTimer); historyTimer = null;
+    if (!historyVisible()) historyController?.abort();
+    else scheduleHistory();
+  }
+
+  function loadHistory() {
+    if (historyRequest) return historyRequest;
+    if (!historyVisible()) { historyDirty = true; return Promise.resolve(); }
+    clearTimeout(historyTimer); historyTimer = null;
+    historyDirty = false;
+    const serial = historySerial, controller = new AbortController();
+    historyController = controller;
+    let timedOut = false;
+    const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 10000);
+    historyRequest = (async () => {
+      if (!state.projectRequest) setHistoryMessage("Chargement des projets…");
+      try {
+        const payload = await request("/api/image-lab/krea2-assisted/project-summaries?limit=30", { signal: controller.signal });
+        if (controller.signal.aborted || serial !== historySerial || !historyVisible()) return;
+        if (!Array.isArray(payload?.projects)) throw new Error("Réponse d’historique invalide.");
+        state.projects = payload.projects;
+        renderHistory();
+        if (!state.projectRequest) setHistoryMessage();
+      } catch (error) {
+        if (serial !== historySerial || !historyVisible() || error.name === "AbortError" && !timedOut) return;
+        if (timedOut) error = new Error("Le chargement des projets prend trop de temps. Réessayez avec Actualiser.");
+        if (!state.projectRequest) setHistoryMessage(`Projets indisponibles : ${error.message}`, true);
+        throw error;
+      } finally {
+        clearTimeout(timeout); historyRequest = null; historyController = null;
+        scheduleHistory();
+      }
+    })();
+    return historyRequest;
   }
 
   function scrollToGallery() {
@@ -1631,6 +1694,10 @@
   }
 
   function validateNewProjectDraft(draft) {
+    if (!state.initialized) {
+      setNewMessage("Les ressources nécessaires ne sont pas encore disponibles. Actualisez avant de lancer.");
+      return false;
+    }
     if (!draft.name) {
       elements.name.reportValidity();
       return false;
@@ -1683,13 +1750,13 @@
       if (defaultLlm) window.PanelForgeModelPicker.select(elements.llm, defaultLlm.id);
       clearGuidance();
       renderProject(payload.project);
-      await loadHistory();
+      invalidateHistory();
       const promptReady = await sendChat("creation", payload.project.intention);
       if (!promptReady) {
         setMessage(`${elements.messageState.textContent || "Prompt en échec."} · rendu non lancé.`, true);
         return false;
       }
-      return renderAttempt();
+      return await renderAttempt();
     } catch (error) { setNewMessage(error.message); return false; }
     finally { setBusy(false); }
   }
@@ -1737,8 +1804,9 @@
     url.searchParams.delete(crossTabLaunchParam);
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
     window.PanelForgeLabNavigation?.switchView("krea2-assisted-lab");
-    await initialize();
+    const ready = await initialize();
     applyNewProjectDraft(event.data.draft);
+    if (!ready) return;
     if (await createAndRenderProject(event.data.draft)) scrollToGallery();
   }
 
@@ -1786,7 +1854,7 @@
       outcomeTone.success();
       elements.message.value = "";
       setMessage(mode === "recipe" ? "Échange recette enregistré." : "Prompt mis à jour.");
-      await loadHistory().catch(error => setHistoryMessage(`Actualisation des projets impossible : ${error.message}`, true));
+      invalidateHistory();
       return true;
     } catch (error) { outcomeTone.failure(); setMessage(error.message, true); return false; }
     finally { reasoningTrace.finish(); setBusy(false); }
@@ -1882,7 +1950,7 @@
         setMessage(last?.status === "created" ? "La file est terminée. Les essais préparés restent à lancer."
           : last?.status === "succeeded" ? "Rendus terminés. Vous pouvez sélectionner un feedback ou enregistrer une image."
             : last?.error || "File terminée.", last?.status === "failed");
-        await loadHistory();
+        invalidateHistory();
       }
     } catch (error) {
       if (serial === state.navigationSerial) { setMessage(error.message, true); schedulePoll(); }
@@ -1926,7 +1994,7 @@
       const payload = await request(`/api/image-lab/krea2-assisted/projects/${encodeURIComponent(state.project.project_id)}/attempts/${encodeURIComponent(attemptId)}/save`, { method: "POST" });
       renderProject(payload.project, { preservePrompt: true });
       setMessage(payload.project.export.error ? `Image validée, export en échec : ${payload.project.export.error}` : `Image enregistrée dans ${payload.project.export.path || "le projet"}.`, Boolean(payload.project.export.error));
-      await loadHistory();
+      invalidateHistory();
     } catch (error) { setMessage(error.message, true); }
     finally { setBusy(false); }
   }
@@ -2302,24 +2370,39 @@
     finally { setBusy(false); }
   }
 
-  function openPresetManager() {
+  async function openPresetManager() {
     if (state.busy) return;
     elements.presetManagerError.textContent = "";
     renderPresetManager();
     elements.presetManager.showModal();
+    try { await loadPresets(); }
+    catch (error) { elements.presetManagerError.textContent = error.message; }
   }
 
   async function initialize() {
     if (state.initializing) return state.initializing;
-    if (state.initialized) return refreshCatalog(true);
+    if (state.initialized) {
+      invalidateHistory();
+      try { await refreshCatalog(true); return true; }
+      catch (error) { setNewMessage(error.message); return false; }
+    }
     state.initializing = (async () => {
       setBusy(state.busy);
       try {
-        const results = await Promise.allSettled([loadSpec(), loadHistory(), loadPresets(), loadRenderQueue()]);
+        const results = await Promise.allSettled([loadSpec(), loadPresets()]);
         state.initialized = results.every(result => result.status === "fulfilled");
         results.filter(result => result.status === "rejected").forEach(result => setNewMessage(result.reason.message));
+        // Display-only reads cannot delay a valid create -> prompt -> render command.
+        invalidateHistory();
+        const serial = state.navigationSerial;
+        loadRenderQueue().then(renderStatus).catch(error => {
+          if (serial === state.navigationSerial) {
+            state.renderQueue = { ...state.renderQueue, error: error.message }; renderStatus();
+          }
+        });
+        return state.initialized;
       } catch (error) { setNewMessage(`Création assistée indisponible : ${error.message}`); }
-      finally { state.initializing = null; }
+      finally { state.initializing = null; setBusy(state.busy); }
     })();
     return state.initializing;
   }
@@ -2338,6 +2421,7 @@
       ["projets récents", loadHistory()],
     ];
     const results = await Promise.allSettled(tasks.map(([, promise]) => promise));
+    if (results.slice(0, 2).every(result => result.status === "fulfilled")) state.initialized = true;
     const failures = results.flatMap((result, index) => result.status === "rejected"
       ? [`${tasks[index][0]} : ${result.reason.message}`] : []);
     if (failures.length) {
@@ -2458,7 +2542,10 @@
   window.addEventListener("beforeunload", () => {
     stopPolling();
     clearTimeout(state.libraryPollTimer);
+    clearTimeout(historyTimer); historyController?.abort();
   });
+  document.addEventListener("visibilitychange", historyVisibilityChanged);
+  new MutationObserver(historyVisibilityChanged).observe(elements.workspace, { attributes: true, attributeFilter: ["hidden"] });
   window.addEventListener("message", handleCrossTabLaunch);
   window.PanelForgeKrea2AssistedLab = Object.freeze({
     open: async (projectId = null) => {

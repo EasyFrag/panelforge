@@ -1,11 +1,14 @@
 """Media http for the PanelForge Lab HTTP interface."""
 
 from __future__ import annotations
+from asyncio import Semaphore
 from .http_support import http_errors
-from fastapi import Request, UploadFile, status
+from fastapi import Request, UploadFile, status, Query
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from panelforge.application import ChangeViewRunner
 from fastapi import APIRouter
+from panelforge.infrastructure.image_thumbnails import CachedImageThumbnails
 
 
 MAX_IMAGE_BYTES = 25 * 1024 * 1024
@@ -80,6 +83,21 @@ def detect_video_media_type(content: bytes) -> str:
 
 def media_router(*, runner: ChangeViewRunner) -> APIRouter:
     router = APIRouter()
+    thumbnails = CachedImageThumbnails(lambda identity: runner.assets.read_verified(identity))
+    thumbnail_slots = Semaphore(2)
+
+    @router.get("/api/assets/{asset_id}/thumbnail")
+    async def asset_thumbnail(asset_id: str, request: Request, v: int = Query(1, ge=1, le=1)) -> Response:
+        # Wait asynchronously before borrowing a worker thread: many visible
+        # history images must not consume all threads needed by launch commands.
+        with http_errors("asset not found", invalid=(ValueError, OSError)):
+            async with thumbnail_slots:
+                thumbnail = await run_in_threadpool(thumbnails.get, asset_id)
+        headers = {"Cache-Control": "private, max-age=31536000, immutable", "ETag": thumbnail.etag}
+        tags = request.headers.get("if-none-match", "").split(",")
+        if any(tag.strip().removeprefix("W/") in {"*", thumbnail.etag} for tag in tags):
+            return Response(status_code=304, headers=headers)
+        return Response(thumbnail.content, media_type="image/png", headers=headers)
 
     @router.get("/api/assets/{asset_id}/content")
     def asset_content(asset_id: str, request: Request) -> Response:

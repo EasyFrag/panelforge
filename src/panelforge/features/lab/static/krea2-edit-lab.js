@@ -1763,4 +1763,7 @@
       initialize();
     });
   });
+  document.addEventListener("panelforge:workshop-ready", event => {
+    if (event.detail.view === "krea2-edit-lab") initialize();
+  });
 })();

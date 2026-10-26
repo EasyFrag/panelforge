@@ -118,8 +118,12 @@ def phase(name, *, aggregate=False, cpu=False):
                 for key in ("bytes", "projects", "entries", "cpu_ms"):
                     if key in values:
                         group[key] = round(group.get(key, 0) + values[key], 3)
-                if "lock_id" in values:
-                    group["lock_id"] = values["lock_id"]
+                if "lock_id" in values and not group.get("mixed_locks"):
+                    if "lock_id" in group and group["lock_id"] != values["lock_id"]:
+                        group.pop("lock_id")
+                        group["mixed_locks"] = True
+                    else:
+                        group["lock_id"] = values["lock_id"]
             else:
                 record["dropped_phases"] += 1
         elif len(record["phases"]) < MAX_PHASES:
@@ -138,6 +142,17 @@ def timed(name, *, aggregate=False, cpu=False):
                 return function(*args, **kwargs)
         return wrapped
     return decorate
+
+
+@contextmanager
+def image_operation(sink, name, *, project_id=None):
+    """Trace a slow local operation without splitting an existing worker trace."""
+    if _current.get() is not None or sink is None:
+        yield
+        return
+    with image_trace(sink, engine="krea2", project_id=project_id, attempt_id=None,
+                     kind="operation", operation=name, min_duration_ms=250):
+        yield
 
 
 @contextmanager

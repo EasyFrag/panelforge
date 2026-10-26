@@ -1,7 +1,7 @@
 """HTTP boundary for the video factory; enqueueing never executes a workflow."""
 from typing import Any
 from ipaddress import ip_address
-from fastapi import APIRouter, File, HTTPException, UploadFile, Request
+from fastapi import APIRouter, File, HTTPException, UploadFile, Request, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -57,8 +57,25 @@ def video_factory_router(service, *, validate_image):
     def state():
         return invoke(service.snapshot if service else lambda: None)
 
+    @router.get("/summary")
+    def summary():
+        return invoke(service.summary if service else lambda: None)
+
+    @router.get("/browse")
+    def browse(tab: str = "preparation", filter: str = "all", sort: str = "chronological",
+               offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100),
+               focus: str | None = None, detail_revision: int | None = None, anchor: bool = False,
+               known_revision: int | None = None):
+        return invoke(lambda: service.browse(tab=tab, filter=filter, sort=sort, offset=offset, limit=limit,
+                                             focus=focus, detail_revision=detail_revision, anchor=anchor,
+                                             known_revision=known_revision))
+
+    @router.get("/items/{identity}")
+    def item_detail(identity: str):
+        return invoke(lambda: service.item_detail(identity))
+
     @router.post("/receive")
-    def receive(body: FactoryBody):
+    def receive(body: FactoryBody, compact: bool = False):
         def work():
             adapter = service.adapter
             if body.source_kind == "episode":
@@ -77,7 +94,7 @@ def video_factory_router(service, *, validate_image):
                     kind=body.source_kind, id=body.source_id or body.asset_id,
                     view="krea2-assisted-lab" if body.source_kind == "image" else
                          "ref2v-direct" if body.source_kind == "ref2v" else "i2v-direct"))]
-            return service.receive(entries)
+            return service.receive(entries, compact=compact)
         return invoke(work)
 
     @router.post("/assets")
@@ -95,28 +112,28 @@ def video_factory_router(service, *, validate_image):
             await image.close()
 
     @router.patch("/items")
-    def update(body: FactorySelection):
-        return invoke(lambda: service.update(body.ids, body.revisions, body.changes, body.preset, body.replacements))
+    def update(body: FactorySelection, compact: bool = False):
+        return invoke(lambda: service.update(body.ids, body.revisions, body.changes, body.preset, body.replacements, compact=compact))
 
     @router.post("/estimate")
     def estimate(body: FactorySelection):
         return invoke(lambda: service.estimate(body.ids, body.revisions))
 
     @router.post("/launch")
-    def launch(body: FactorySelection):
-        return invoke(lambda: service.launch(body.ids, body.revisions))
+    def launch(body: FactorySelection, compact: bool = False):
+        return invoke(lambda: service.launch(body.ids, body.revisions, compact=compact))
 
     @router.post("/actions/{action}")
-    def action(action: str, body: FactorySelection):
-        return invoke(lambda: service.action(action, body.ids, body.revisions))
+    def action(action: str, body: FactorySelection, compact: bool = False):
+        return invoke(lambda: service.action(action, body.ids, body.revisions, compact=compact))
 
     @router.put("/order")
-    def order(body: FactoryOrder):
-        return invoke(lambda: service.reorder(body.ids, body.revision))
+    def order(body: FactoryOrder, compact: bool = False):
+        return invoke(lambda: service.reorder(body.ids, body.revision, compact=compact))
 
     @router.post("/items/{identity}/refresh-source")
-    def refresh_source(identity: str, body: FactorySelection):
-        return invoke(lambda: service.refresh_source(identity, body.revisions))
+    def refresh_source(identity: str, body: FactorySelection, compact: bool = False):
+        return invoke(lambda: service.refresh_source(identity, body.revisions, compact=compact))
 
     @router.get("/items/{identity}/instagram.txt")
     def instagram(identity: str):
@@ -125,8 +142,8 @@ def video_factory_router(service, *, validate_image):
                         headers={"Content-Disposition": 'attachment; filename="Instagram.txt"'})
 
     @router.post("/items/{identity}/retry-export")
-    def retry_export(identity: str):
-        return invoke(lambda: service.retry_delivery(identity))
+    def retry_export(identity: str, compact: bool = False):
+        return invoke(lambda: service.retry_delivery(identity, compact=compact))
 
     @router.post("/items/{identity}/open-folder")
     def open_folder(identity: str, request: Request):

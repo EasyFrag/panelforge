@@ -15,6 +15,7 @@ from threading import RLock
 from typing import Any
 from panelforge.application.image_timings import phase, timed, timed_lock
 from panelforge.domain.assisted_composition import AssistedComposition
+from panelforge.domain.krea2_history import Krea2ProjectSummary, project_summary
 
 from panelforge.domain.krea2_assisted import (
     Krea2AssistedAttempt,
@@ -38,6 +39,7 @@ from panelforge.domain.krea2_sampling import Krea2AssistedSettings, sampling_for
 from panelforge.domain.krea2_assisted_workflows import workflow_selection_from_dict
 from panelforge.domain.krea2_art_direction import Krea2ArtDirection
 from panelforge.domain.recipes import RecipeRef
+from panelforge.domain.krea2_render_queue import Krea2RenderQueueEntry, pending_render_entries
 from .krea2_style_presets import preset_dict, load_preset
 
 
@@ -49,53 +51,189 @@ class LocalKrea2AssistedProjectStore:
         self._root = Path(workspace_root).resolve() / "krea2_assisted"
         self._root.mkdir(parents=True, exist_ok=True)
         self._lock = RLock()
+        self._project_locks: dict[str, Any] = {}
+        # Derived views only: project.json remains the durable source of truth.
+        self._recent: dict[str, int] | None = None
+        self._summaries: dict[str, Krea2ProjectSummary] = {}
+        self._pending: dict[str, tuple[Krea2RenderQueueEntry, ...]] | None = None
+        self._last_queue_order = 0
+        self._queue_index_error: str | None = None
 
     @timed("projects.create", aggregate=True, cpu=True)
     def create(self, project: Krea2AssistedProject) -> Krea2AssistedProject:
         with timed_lock(self._lock, "projects.create", aggregate=True):
             directory = self._directory(project.project_id)
             directory.mkdir(exist_ok=False)
-            _atomic_write(directory / "project.json", _json_bytes(_serialize(project)))
+            path = directory / "project.json"
+            _atomic_write(path, _json_bytes(_serialize(project)))
+            self._saved(project, path)
         return project
 
     @timed("projects.save", aggregate=True, cpu=True)
     def save(self, project: Krea2AssistedProject) -> Krea2AssistedProject:
-        with timed_lock(self._lock, "projects.save", aggregate=True):
+        with timed_lock(self._lock, "projects.save", aggregate=True), self._project_lock(project.project_id):
             path = self._directory(project.project_id) / "project.json"
             if not path.is_file():
                 raise FileNotFoundError(project.project_id)
             _atomic_write(path, _json_bytes(_serialize(project)))
+            self._saved(project, path)
         return project
 
     @timed("projects.get", aggregate=True, cpu=True)
     def get(self, project_id: str) -> Krea2AssistedProject:
-        with timed_lock(self._lock, "projects.get", aggregate=True):
-            path = self._directory(project_id) / "project.json"
-            if not path.is_file() or path.is_symlink():
-                raise FileNotFoundError(project_id)
+        path = self._directory(project_id) / "project.json"
+        if not path.is_file() or path.is_symlink():
+            raise FileNotFoundError(project_id)
+        with timed_lock(self._project_lock(project_id), "projects.get", aggregate=True):
             return _read_project(path)
+
+    def _project_lock(self, project_id: str):
+        with timed_lock(self._lock, "projects.lookup", aggregate=True):
+            if project_id not in self._project_locks:
+                self._project_locks[project_id] = RLock()
+            return self._project_locks[project_id]
 
     @timed("projects.list", aggregate=True, cpu=True)
     def list(self, limit: int = 30) -> list[Krea2AssistedProject]:
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
             raise ValueError("limit must be a non-negative integer")
-        values: list[tuple[int, str, Path]] = []
+        if limit == 0:
+            return []
         with timed_lock(self._lock, "projects.list", aggregate=True):
-            with phase("projects.list.enumerate", aggregate=True, cpu=True) as metrics:
-                metrics["entries"] = 0
-                for directory in self._root.iterdir():
-                    metrics["entries"] += 1
-                    path = directory / "project.json"
-                    if directory.is_dir() and not directory.is_symlink() and path.is_file():
-                        values.append((path.stat().st_mtime_ns, directory.name, path))
-                metrics["projects"] = len(values)
+            self._ensure_recent()
             with phase("projects.list.sort", aggregate=True, cpu=True):
-                values.sort(reverse=True)
-            # Listing recent workshops must not deserialize every archived conversation.
-            with phase("projects.list.load", aggregate=True, cpu=True) as metrics:
-                result = [_read_project(path) for _, _, path in values[:limit]]
-                metrics["projects"] = len(result)
-                return result
+                ids = sorted(self._recent, key=lambda key: (self._recent[key], key), reverse=True)[:limit]
+        # File reads hold only their project lock, never the whole history's lock.
+        with phase("projects.list.load", aggregate=True, cpu=True) as metrics:
+            result = [self.get(project_id) for project_id in ids]
+            metrics["projects"] = len(result)
+            return result
+
+    @timed("projects.summaries", aggregate=True, cpu=True)
+    def summaries(self, limit: int = 30) -> tuple[Krea2ProjectSummary, ...]:
+        if type(limit) is not int or not 0 <= limit <= 100:
+            raise ValueError("limit must be an integer between 0 and 100")
+        if not limit:
+            return ()
+        with timed_lock(self._lock, "projects.summaries", aggregate=True):
+            self._ensure_recent()
+            ids = sorted(self._recent, key=lambda key: (self._recent[key], key), reverse=True)[:limit]
+            missing = [(identity, self._recent[identity]) for identity in ids if identity not in self._summaries]
+        # Normally populated by startup recovery/save. A cold standalone reader
+        # loads only missing rows, outside the global lock, never the whole library.
+        for identity, stamp in missing:
+            project = self.get(identity)
+            with self._lock:
+                if self._recent is not None and self._recent.get(identity) == stamp:
+                    self._remember_summary(project, stamp)
+        with self._lock:
+            if any(identity not in self._summaries for identity in ids):
+                raise ValueError("Historique momentanément indisponible. Actualisez les projets.")
+            return tuple(self._summaries[identity] for identity in ids)
+
+    def _remember_summary(self, project, modified_ns):
+        try:
+            self._summaries[project.project_id] = project_summary(project, modified_ns)
+        except Exception:
+            # A failed display projection must not turn a durable save into a
+            # failed command, nor invalidate the authoritative render queue.
+            self._summaries.pop(project.project_id, None)
+
+    def pending_renders(self) -> tuple[Krea2RenderQueueEntry, ...]:
+        with timed_lock(self._lock, "projects.queue", aggregate=True):
+            self._ensure_queue()
+            return tuple(sorted((entry for entries in self._pending.values() for entry in entries),
+                                key=lambda entry: entry.sort_key))
+
+    def next_queue_order(self, now_ns: int) -> int:
+        with timed_lock(self._lock, "projects.queue_order", aggregate=True):
+            self._ensure_queue()
+            self._last_queue_order = max(now_ns, self._last_queue_order + 1)
+            return self._last_queue_order
+
+    def rebuild_index(self) -> None:
+        """Explicit recovery after an external import/repair, before resuming work."""
+        with self._lock:
+            self._recent = self._pending = None
+            self._summaries.clear()
+            self._queue_index_error = None
+            self._ensure_queue()
+
+    def _ensure_recent(self) -> None:
+        if self._recent is not None:
+            return
+        values = {}
+        with phase("projects.index.enumerate", aggregate=True, cpu=True) as metrics:
+            metrics["entries"] = 0
+            for directory in self._root.iterdir():
+                metrics["entries"] += 1
+                path = directory / "project.json"
+                if directory.is_dir() and not directory.is_symlink() and path.is_file():
+                    values[directory.name] = path.stat().st_mtime_ns
+            metrics["projects"] = len(values)
+        self._recent = values
+
+    def _ensure_queue(self) -> None:
+        if self._queue_index_error:
+            raise ValueError(self._queue_index_error)
+        if self._pending is not None:
+            return
+        pending = {}
+        maximum = self._last_queue_order
+        project_id = ""
+        try:
+            self._ensure_recent()
+            with phase("projects.index.recover", aggregate=True, cpu=True) as metrics:
+                metrics["projects"] = 0
+                for project_id in self._recent:
+                    # Inventory already checked the directories; this lock excludes
+                    # durable writes during recovery, without resolving every path again.
+                    _safe(project_id)
+                    path = self._root / project_id / "project.json"
+                    if path.is_symlink():
+                        raise ValueError("project file cannot be a symlink")
+                    project = _read_project(path)
+                    if project.project_id != project_id:
+                        raise ValueError("project ID differs from its directory")
+                    self._remember_summary(project, self._recent[project_id])
+                    entries = pending_render_entries(project)
+                    if entries:
+                        pending[project_id] = entries
+                    maximum = max(maximum, max((a.queue_order or 0 for a in project.attempts), default=0))
+                    metrics["projects"] += 1
+        except Exception as error:
+            # Never silently drop unknown active work or rescan on every poll.
+            self._queue_index_error = (
+                f"Index de file KREA2 indisponible ({project_id}: {type(error).__name__}). "
+                "Corrigez le projet puis reconstruisez l'index ou redémarrez le Lab."
+            )
+            raise ValueError(self._queue_index_error) from error
+        self._pending = pending
+        self._last_queue_order = maximum
+
+    def _saved(self, project: Krea2AssistedProject, path: Path) -> None:
+        try:
+            if self._recent is not None:
+                self._recent[project.project_id] = path.stat().st_mtime_ns
+            if self._pending is not None:
+                entries = pending_render_entries(project)
+                if entries:
+                    self._pending[project.project_id] = entries
+                else:
+                    self._pending.pop(project.project_id, None)
+            self._last_queue_order = max(
+                self._last_queue_order, max((a.queue_order or 0 for a in project.attempts), default=0),
+            )
+        except Exception:
+            # The durable write succeeded: discard a partially updated derived view.
+            self._recent = self._pending = None
+            self._summaries.clear()
+            raise
+        try:
+            stamp = self._recent[project.project_id] if self._recent is not None else path.stat().st_mtime_ns
+            self._remember_summary(project, stamp)
+        except Exception:
+            self._summaries.pop(project.project_id, None)
 
     @timed("projects.workflow", aggregate=True, cpu=True)
     def save_compiled_workflow(

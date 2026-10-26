@@ -9,7 +9,7 @@
   const stages = ["plan","prompt","video","dlss","social"];
   const labels = {plan:"Plan",prompt:"Prompt",video:"Vidéo",dlss:"DLSS",social:"Texte IG"};
   const roles = {unassigned:"Rôle à choisir",first_frame:"Première frame",last_frame:"Dernière frame",subject_reference:"Sujet / identité",environment_reference:"Décor",style_reference:"Style",composition_reference:"Composition",motion_reference:"Mouvement",keyframe_reference:"Keyframe"};
-  const state = {data:null,tab:"preparation",resultSort:"chronological",selected:new Set(),focus:null,busy:false,dirty:false,draft:null,revision:null,undo:null,refreshing:false};
+  const state = {data:null,tab:"preparation",resultSort:"chronological",selected:new Set(),focus:null,busy:false,dirty:false,draft:null,revision:null,undo:null,refreshing:false,offset:0,limit:50,detail:null,viewSerial:0};
   const uploads = new WeakMap();
   let noticeTimer;
   const topbar = document.querySelector(".topbar");
@@ -28,17 +28,32 @@
   } else {
     window.addEventListener("resize", syncStickyGeometry);
   }
-  const api = (path,method="GET",body) => core.request("/api/video-factory" + path, {method,...(body===undefined?{}:{headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})});
-  const current = () => state.data?.items.find(item=>item.id===state.focus);
+  const active = () => !root.hidden && document.visibilityState === "visible";
+  const inventory = () => state.data?.inventory || state.data?.items || [];
+  async function api(path,method="GET",body) {
+    const compact=method!=="GET" && path!=="/estimate" && !path.endsWith("/open-folder");
+    if(compact)state.viewSerial++;
+    const result=await core.request("/api/video-factory"+path+(compact?"?compact=true":""), {method,...(body===undefined?{}:{headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})});
+    const receipt=result.state || result;
+    if(compact && receipt.compact && !receipt.items && (active() || path!=="/receive")) {
+      state.viewSerial++;
+      try {
+        const data=await readView();
+        if(result.state)result.state=data;else return data;
+      } catch(error) { showNotice("Action enregistrée. Actualisation impossible : "+error.message); }
+    }
+    return result;
+  }
+  const current = () => state.data?.page ? (state.detail?.id===state.focus?state.detail:null) : state.data?.items.find(item=>item.id===state.focus);
   const presetLabel = key => state.data.preset_labels?.[key] || state.data.presets[key] || key;
   const group = item => item.source.kind === "episode" ? item.source.id : "";
-  const tab = item => item.remove_requested ? "production" : item.archived_at ? "archives" : item.status === "preparation" ? "preparation" : ["queued","active"].includes(item.status) ? "production" : "results";
-  const errors = item => Object.values(item.steps).some(step=>step.status==="failed") || item.delivery?.status==="failed";
+  const tab = item => item.tab || (item.remove_requested ? "production" : item.archived_at ? "archives" : item.status === "preparation" ? "preparation" : ["queued","active"].includes(item.status) ? "production" : "results");
+  const errors = item => item.has_errors ?? (Object.values(item.steps).some(step=>step.status==="failed") || item.delivery?.status==="failed");
   const canRetry = item => !item.archived_at && !item.remove_requested && !item.recover_stage &&
     (["failed","cancelled"].includes(item.status) || item.status==="succeeded" && item.delivery?.status==="failed");
   const canArchive = item => !item.archived_at && item.can_archive===true;
   const assetUrl = id => "/api/assets/" + encodeURIComponent(id) + "/content";
-  const selected = () => (state.data?.items || []).filter(item=>state.selected.has(item.id));
+  const selected = () => inventory().filter(item=>state.selected.has(item.id));
   const selection = items => ({ids:items.map(item=>item.id), revisions:Object.fromEntries(items.map(item=>[item.id,item.revision]))});
   const monitoring=window.PanelForgeFactoryMonitor?.create({root,escape,request:api,getState:()=>state,getSelection:selected});
   function resultDate(item) {
@@ -47,6 +62,7 @@
     return completed.length?Math.max(...completed):Date.parse(item.launched_at||item.created_at)||0;
   }
   function visible() {
+    if(state.data?.page)return state.data.items;
     const filter = $("filter").value;
     const items=(state.data?.items || []).filter(item=>tab(item)===state.tab && (
       filter==="all" || filter==="ready" && item.status==="preparation" && item.ready ||
@@ -76,25 +92,82 @@
     finally{state.busy=false;renderToolbar();}
   }
   function accept(data) {
+    if(data.unchanged && state.data)data={...state.data,...data};
+    if(!data.items){acceptSummary(data);return;}
     // A GET begun before a preset edit must not restore the previous revision.
     if(state.data&&data.revision<state.data.revision)return;
-    state.data=data;
+    const {detail,...view}=data;
+    state.data=view;
+    for(const item of view.items){if(Object.hasOwn(view.waiting_reasons||{},item.id))item.waiting_reason=view.waiting_reasons[item.id];}
+    state.offset=data.page?.offset || 0;
+    if(detail)state.detail=detail;
     monitoring?.received();
-    const ids=new Set(data.items.map(item=>item.id));
-    state.selected=new Set([...state.selected].filter(id=>ids.has(id) && tab(data.items.find(item=>item.id===id))===state.tab));
-    if(state.focus&&(!ids.has(state.focus)||!state.dirty&&tab(current())!==state.tab)){state.focus=null;state.dirty=false;}
+    const ids=new Map(inventory().map(item=>[item.id,item]));
+    state.selected=new Set([...state.selected].filter(id=>ids.has(id) && tab(ids.get(id))===state.tab));
+    if(state.focus&&(!ids.has(state.focus)||!state.dirty&&tab(ids.get(state.focus))!==state.tab)){state.focus=null;state.detail=null;state.dirty=false;}
     render();
   }
+  function acceptSummary(data) {
+    const count=data.error_count ?? (data.items || []).filter(i=>!i.archived_at&&errors(i)).length;
+    $("nav-errors").hidden=!count;$("nav-errors").textContent=count;
+    $("nav-errors").title=count+" traitement(s) avec une étape en erreur";
+  }
+  function readView(anchor=false,signal) {
+    const query=new URLSearchParams({tab:state.tab,filter:$("filter").value,sort:state.resultSort,offset:state.offset,limit:state.limit});
+    if(state.focus){query.set("focus",state.focus);if(state.detail?.id===state.focus)query.set("detail_revision",state.detail.revision);}
+    if(anchor)query.set("anchor","true");
+    const page=state.data?.page;
+    if(!anchor&&page&&page.tab===state.tab&&page.filter===$("filter").value&&page.sort===state.resultSort&&page.offset===state.offset)query.set("known_revision",state.data.revision);
+    return core.request("/api/video-factory/browse?"+query,{signal});
+  }
+  async function reload(anchor=false) {
+    const serial=++state.viewSerial;
+    try {
+      const data=await readView(anchor);
+      if(serial===state.viewSerial)accept(data);
+    } catch(error) {
+      if(serial===state.viewSerial&&state.data?.page){
+        const page=state.data.page;
+        state.tab=page.tab;state.offset=page.offset;state.resultSort=page.sort;$("filter").value=page.filter;
+        render();
+      }
+      throw error;
+    }
+  }
+  let pollTimer=null,pollController=null,refreshPending=false;
+  function schedulePoll() {
+    clearTimeout(pollTimer);
+    if(document.visibilityState==="visible")pollTimer=setTimeout(refresh,active()?5000:15000);
+  }
   async function refresh() {
-    if(state.refreshing||state.busy)return;
+    if(document.visibilityState!=="visible")return;
+    if(state.refreshing||state.busy){schedulePoll();return;}
     state.refreshing=true;
-    try{accept(await api(""));}catch(error){$("message").textContent=error.message;}finally{state.refreshing=false;}
+    const serial=++state.viewSerial,full=active();
+    pollController=new AbortController();
+    try {
+      const data=full?await readView(false,pollController.signal):await core.request("/api/video-factory/summary",{signal:pollController.signal});
+      if(serial!==state.viewSerial||document.visibilityState!=="visible")return;
+      if(full&&active())accept(data);else acceptSummary(data);
+    }catch(error){if(error.name!=="AbortError")$("message").textContent=error.message;}
+    finally{
+      state.refreshing=false;pollController=null;
+      if(refreshPending){refreshPending=false;refresh();}else schedulePoll();
+    }
+  }
+  function visibilityChanged() {
+    clearTimeout(pollTimer);state.viewSerial++;pollController?.abort();
+    monitoring?.previewSelection();
+    if(document.visibilityState==="visible"){
+      if(state.refreshing)refreshPending=true;else refresh();
+    }
   }
   async function open(ids=[]) {
     await saveDraft();
     window.PanelForgeLabNavigation?.switchView("video-factory");
-    await refresh();
-    if(ids.length){const item=state.data?.items.find(item=>item.id===ids[0]);if(item){state.focus=item.id;state.tab=tab(item);$("filter").value="all";state.selected=new Set(ids.filter(id=>state.data.items.some(i=>i.id===id&&tab(i)===state.tab)));}}
+    if(ids.length){const item=await api("/items/"+encodeURIComponent(ids[0]));state.detail=item;state.focus=item.id;state.tab=tab(item);$("filter").value="all";}
+    await reload(true);
+    if(ids.length)state.selected=new Set(ids.filter(id=>inventory().some(i=>i.id===id&&tab(i)===state.tab)));
     render();
   }
   async function send(payload,button) {
@@ -168,7 +241,7 @@
     return state.tab==="preparation"?"":'<small class="vf-stage-duration" data-vf-duration="'+key+'">'+escape(stageDuration(item.steps[key]))+'</small>'+(monitoring?.step(item,key)||"");
   }
   function updateDurations() {
-    if(root.hidden||!state.data)return;
+    if(!active()||!state.data)return;
     monitoring?.tick();
     for(const node of $("rows").querySelectorAll("[data-vf-duration]")){
       const item=state.data.items.find(i=>i.id===node.closest("[data-vf-id]").dataset.vfId);
@@ -188,35 +261,40 @@
   }
   async function resumeChain(items) {
     await itemAction("retry",items);
-    state.tab=state.data.items.some(item=>items.some(old=>old.id===item.id)&&tab(item)==="production")?"production":"results";
-    state.selected.clear();render();
+    state.tab=inventory().some(item=>items.some(old=>old.id===item.id)&&tab(item)==="production")?"production":"results";
+    state.offset=0;state.selected.clear();await reload();
   }
   function render() {
     if(!state.data)return;
     root.dataset.vfView=state.tab;
-    const counts={preparation:0,production:0,results:0,archives:0};state.data.items.forEach(item=>counts[tab(item)]++);
+    const counts=state.data.counts || {preparation:0,production:0,results:0,archives:0};if(!state.data.counts)state.data.items.forEach(item=>counts[tab(item)]++);
     document.querySelectorAll("[data-vf-tab]").forEach(button=>{button.classList.toggle("active",button.dataset.vfTab===state.tab);button.querySelector("span").textContent=counts[button.dataset.vfTab];});
-    const errorCount=state.data.items.filter(item=>!item.archived_at&&errors(item)).length;
-    $("nav-errors").hidden=!errorCount;$("nav-errors").textContent=errorCount;
-    $("nav-errors").title=errorCount+" traitement(s) avec une étape en erreur";
+    acceptSummary(state.data);
     $("pause").textContent=state.data.paused?"Reprendre":"Pause";
     $("pause").title=state.data.paused?"Reprendre la file":"Mettre la file en pause après les étapes actives";
     if(state.data.scheduler_error)$("message").textContent=state.data.scheduler_error;
     const rows=visible();
+    if($("pagination")) {
+      const page=state.data.page;
+      $("pagination").hidden=!page||page.total<=page.limit;
+      $("page-label").textContent=page?`${page.total? page.offset+1:0}–${Math.min(page.offset+page.limit,page.total)} / ${page.total}`:"";
+      $("page-previous").disabled=state.busy||!page||page.offset===0;
+      $("page-next").disabled=state.busy||!page||page.offset+page.limit>=page.total;
+    }
     $("rows").innerHTML=rows.map((item,index)=>{
       const groupId=group(item),first=groupId&&(!index||group(rows[index-1])!==groupId);
       const last=groupId&&(index===rows.length-1||group(rows[index+1])!==groupId);
       let header="";
       if(first){
         const members=rows.filter(i=>group(i)===groupId),count=members.length;
-        header='<tr class="vf-group"><td colspan="8"><label><input type="checkbox" data-vf-group="'+escape(groupId)+'" '+(members.every(i=>state.selected.has(i.id))?"checked":"")+">"+escape(item.source.group)+' <span class="vf-group-count">· '+count+' scène'+(count>1?'s':'')+'</span></label></td></tr>';
+        header='<tr class="vf-group"><td colspan="8"><label><input type="checkbox" data-vf-group="'+escape(groupId)+'" '+(members.every(i=>state.selected.has(i.id))?"checked":"")+">"+escape(item.source.group)+' <span class="vf-group-count">· '+count+' scène'+(count>1?'s':'')+(state.data.page?.total>state.limit?' sur cette page':'')+'</span></label></td></tr>';
       }
       const rowClasses=[state.focus===item.id?"selected":"",groupId?"vf-group-member":"",last?"vf-group-end":""].filter(Boolean).join(" ");
       const spacer=last&&index<rows.length-1?'<tr class="vf-group-gap" aria-hidden="true"><td colspan="8"></td></tr>':"";
       const image=item.config.references[0];
       const stateLabel=item.remove_requested?"Suppression en cours":item.archived_at?"Archivé":item.cancel_requested&&item.status==="active"?"Annulation demandée":item.status==="preparation"?(item.ready?"Prêt":"À compléter"):({queued:"En attente",active:"En cours",succeeded:"Terminé",failed:"En erreur",cancelled:"Annulé"}[item.status]);
       const reason=item.status==="preparation"?item.issues.join(" "):item.waiting_reason || (errors(item)?"Une étape est à reprendre":"");
-      return header+'<tr data-vf-id="'+item.id+'" class="'+rowClasses+'"><td><label class="vf-select"><input type="checkbox" data-vf-select '+(state.selected.has(item.id)?"checked":"")+' aria-label="Sélectionner '+escape(item.name)+'"><span>'+String(state.data.items.indexOf(item)+1).padStart(2,"0")+'</span></label></td><td><div class="vf-video-title">'+(image?imagePreview(image,item.name):"")+'<div><button type="button" data-vf-open>'+titleMarkup(item)+'</button><small>'+escape(presetLabel(item.config.preset))+' · '+escape(item.config.mode.toUpperCase())+(item.source.kind==="episode"?" · scène "+(item.source.index+1):"")+'</small></div></div></td>'+
+      return header+'<tr data-vf-id="'+item.id+'" class="'+rowClasses+'"><td><label class="vf-select"><input type="checkbox" data-vf-select '+(state.selected.has(item.id)?"checked":"")+' aria-label="Sélectionner '+escape(item.name)+'"><span>'+String(item.position || state.data.items.indexOf(item)+1).padStart(2,"0")+'</span></label></td><td><div class="vf-video-title">'+(image?imagePreview(image,item.name):"")+'<div><button type="button" data-vf-open>'+titleMarkup(item)+'</button><small>'+escape(presetLabel(item.config.preset))+' · '+escape(item.config.mode.toUpperCase())+(item.source.kind==="episode"?" · scène "+(item.source.index+1):"")+'</small></div></div></td>'+
         stages.map(key=>'<td><button type="button" data-vf-stage="'+key+'" class="vf-stage '+item.steps[key].status+'" title="'+escape(labels[key]+" · "+(item.steps[key].message||item.steps[key].error||stageLabel(item,key)))+'">'+escape(stageLabel(item,key))+'</button>'+durationMarkup(item,key)+'</td>').join("")+
         '<td class="vf-state">'+stateCell(item,stateLabel,reason)+'</td></tr>'+spacer;
     }).join("");
@@ -242,7 +320,7 @@
     let html='<div class="vf-result-actions">'+status;
     if(hasVideo)html+='<button type="button" data-vf-result="'+(item.steps.dlss.output.asset_id?"dlss":"video")+'">'+(item.steps.dlss.output.asset_id?"Voir le DLSS":"Voir la vidéo")+'</button>';
     if(delivery?.folder)html+='<button type="button" data-vf-folder title="'+escape(delivery.folder)+'">Ouvrir le dossier</button>';
-    if(item.steps.social.output.variants?.length)html+='<button type="button" data-vf-result="social">Texte IG · copier</button>';
+    if(item.steps.social.output.variant_count || item.steps.social.output.variants?.length)html+='<button type="button" data-vf-result="social">Texte IG · copier</button>';
     if(item.archived_at)html+='<button type="button" data-vf-restore title="Restaurer dans Résultats sans relancer">Restaurer</button>';
     else html+=archiveButton(item);
     if(canRetry(item))html+='<button type="button" data-vf-retry>Reprendre la chaîne</button>';
@@ -287,12 +365,18 @@
   }
   function renderToolbar() {
     if(!state.data)return;
+    const page=state.data.page;
+    if($("pagination")){
+      $("page-previous").disabled=state.busy||!page||page.offset===0;
+      $("page-next").disabled=state.busy||!page||page.offset+page.limit>=page.total;
+    }
     const items=selected(),preparation=state.tab==="preparation";
     root.querySelectorAll(".vf-preparation-ready").forEach(node=>{
       node.hidden=preparation&&state.selected.has(node.closest("[data-vf-id]").dataset.vfId);
     });
     $("results-sort").hidden=state.tab!=="results";$("results-sort").value=state.resultSort;
     $("results-sort").disabled=state.busy;
+    $("filter").disabled=state.busy;
     $("selected-count").textContent=items.length+" sélectionné"+(items.length>1?"s":"");
     $("select-all").checked=visible().length>0&&visible().every(item=>state.selected.has(item.id));
     $("select-all").indeterminate=!$("select-all").checked&&visible().some(item=>state.selected.has(item.id));
@@ -405,24 +489,34 @@
   }
   async function patch(items,changes,preset) {
     await saveDraft();
-    const ids=items.map(item=>item.id),fresh=state.data.items.filter(item=>ids.includes(item.id));
+    const ids=items.map(item=>item.id),fresh=inventory().filter(item=>ids.includes(item.id));
     const result=await api("/items","PATCH",{...selection(fresh),changes,preset});
     accept(result.state);rememberUndo(result);
   }
   async function itemAction(action,items=selected()) {
     // A discarded line need not save an invalid or unfinished settings draft.
     if(action!=="remove" || !items.some(item=>item.id===state.focus))await saveDraft();
-    const fresh=state.data.items.filter(item=>items.some(old=>old.id===item.id));
-    const previousIds=new Set(state.data.items.map(item=>item.id));
-    accept(await api("/actions/"+action,"POST",selection(fresh)));
+    const fresh=inventory().filter(item=>items.some(old=>old.id===item.id));
+    const previousIds=new Set(inventory().map(item=>item.id));
+    if(action==="remove")$("message").textContent="Suppression de "+fresh.length+" fiche"+(fresh.length>1?"s":"")+" en cours…";
+    const result=await api("/actions/"+action,"POST",selection(fresh));
+    accept(result);
+    if(action==="remove"){
+      if(result.items){
+        const remaining=new Set(inventory().map(item=>item.id)),removed=fresh.filter(item=>!remaining.has(item.id)).length;
+        const pending=fresh.length-removed;
+        $("message").textContent=(removed?removed+" fiche"+(removed>1?"s supprimées.":" supprimée."):"")+
+          (pending?(removed?" ":"")+pending+" suppression"+(pending>1?"s":"")+" en attente de l’arrêt des étapes actives.":"");
+      }else $("message").textContent="Demande de suppression enregistrée. Actualise la liste pour vérifier le résultat.";
+    }
     if(action==="archive")showNotice(fresh.length+" résultat"+(fresh.length>1?"s archivés":" archivé"),()=>open(fresh.map(item=>item.id)),"Voir les archives");
     if(action==="restore"){
-      state.tab="results";$("filter").value="all";state.selected=new Set(fresh.map(item=>item.id));state.focus=fresh[0]?.id||null;render();
+      state.tab="results";$("filter").value="all";state.selected=new Set(fresh.map(item=>item.id));state.focus=fresh[0]?.id||null;state.detail=null;await reload(true);
       showNotice("Résultats restaurés, sans relance.");
     }
     if(action==="duplicate"){
-      const copies=state.data.items.filter(item=>!previousIds.has(item.id));
-      state.tab="preparation";$("filter").value="all";state.selected=new Set(copies.map(item=>item.id));state.focus=copies[0]?.id||null;render();
+      const copies=inventory().filter(item=>!previousIds.has(item.id));
+      state.tab="preparation";$("filter").value="all";state.selected=new Set(copies.map(item=>item.id));state.focus=copies[0]?.id||null;state.detail=null;await reload(true);
     }
   }
   async function source(item) {
@@ -440,7 +534,8 @@
     const workshop = detail.view === "ref2v-direct" ? window.PanelForgeRef2V : window.PanelForgeH3Base;
     await workshop?.open(detail.kind === "session" ? detail.id : null);
   }
-  function detail(item,key) {
+  async function detail(item,key) {
+    if(item.summary)item=await api("/items/"+encodeURIComponent(item.id));
     const step=item.steps[key],body=$("detail-content");body.replaceChildren();
     $("detail-title").textContent=item.name+" · "+labels[key];
     if(step.error){const p=document.createElement("p");p.textContent=step.error;body.append(p);}
@@ -469,12 +564,15 @@
     if(!body.children.length){const p=document.createElement("p");p.textContent=step.output.note||step.message||stageLabel(item,key);body.append(p);}
     $("detail-dialog").showModal();
   }
-  document.querySelectorAll("[data-vf-tab]").forEach(button=>button.addEventListener("click",()=>busy(async()=>{await saveDraft();state.tab=button.dataset.vfTab;state.selected.clear();state.focus=null;$("filter").value="all";render();})));
+  document.querySelectorAll("[data-vf-tab]").forEach(button=>button.addEventListener("click",()=>busy(async()=>{await saveDraft();state.tab=button.dataset.vfTab;state.offset=0;state.selected.clear();state.focus=null;state.detail=null;$("filter").value="all";await reload();})));
   document.querySelector('[data-lab-view="video-factory"]')?.addEventListener("click",()=>refresh());
   $("refresh").onclick=()=>refresh();
-  $("filter").onchange=()=>{state.selected.clear();render();};
-  $("results-sort").onchange=event=>{state.resultSort=event.target.value==="newest"?"newest":"chronological";render();};
+  $("filter").onchange=()=>busy(async()=>{state.offset=0;state.selected.clear();await reload();});
+  $("results-sort").onchange=event=>busy(async()=>{state.resultSort=event.target.value==="newest"?"newest":"chronological";state.offset=0;await reload();});
   $("select-all").onchange=event=>{visible().forEach(item=>event.target.checked?state.selected.add(item.id):state.selected.delete(item.id));render();};
+  for(const [id,direction] of [["page-previous",-1],["page-next",1]]) {
+    if($(id))$(id).onclick=()=>busy(async()=>{state.offset=Math.max(0,state.offset+direction*state.limit);await reload();});
+  }
   $("rows").addEventListener("change",event=>{
     if(event.target.matches("[data-vf-group]"))visible().filter(item=>group(item)===event.target.dataset.vfGroup).forEach(item=>event.target.checked?state.selected.add(item.id):state.selected.delete(item.id));
     if(event.target.matches("[data-vf-select]")){const id=event.target.closest("[data-vf-id]").dataset.vfId;event.target.checked?state.selected.add(id):state.selected.delete(id);}
@@ -484,7 +582,7 @@
     const tr=event.target.closest("[data-vf-id]");if(!tr)return;
     const item=state.data.items.find(item=>item.id===tr.dataset.vfId);
     const resultButton=event.target.closest("[data-vf-result]");
-    if(resultButton)return detail(item,resultButton.dataset.vfResult);
+    if(resultButton)return busy(()=>detail(item,resultButton.dataset.vfResult));
     if(event.target.closest("[data-vf-folder]"))return busy(()=>openFolder(item));
     const preview=event.target.closest("[data-vf-preview]");
     if(preview)return openImage(preview);
@@ -492,8 +590,8 @@
     if(event.target.closest("[data-vf-delete]"))return busy(()=>itemAction("remove",[item]));
     if(event.target.closest("[data-vf-archive]"))return busy(()=>itemAction("archive",[item]));
     if(event.target.closest("[data-vf-restore]"))return busy(()=>itemAction("restore",[item]));
-    if(event.target.closest("[data-vf-stage]"))return detail(item,event.target.closest("[data-vf-stage]").dataset.vfStage);
-    if(event.target.closest("[data-vf-open]"))busy(async()=>{await saveDraft();state.focus=item.id;render();});
+    if(event.target.closest("[data-vf-stage]"))return busy(()=>detail(item,event.target.closest("[data-vf-stage]").dataset.vfStage));
+    if(event.target.closest("[data-vf-open]"))busy(async()=>{await saveDraft();state.detail=await api("/items/"+encodeURIComponent(item.id));state.focus=item.id;render();});
   });
   $("inspector").addEventListener("input",event=>{
     const path=event.target.dataset.vfField;if(!path)return;
@@ -549,7 +647,7 @@
     if(data.get("dlss"))changes.dlss={enabled:data.get("dlss")==="on"};
     await patch(selected(),changes);$("bulk-dialog").close();
   });};
-  $("launch").onclick=()=>busy(async()=>{await saveDraft();accept(await api("/launch","POST",selection(selected())));state.tab="production";state.selected.clear();render();});
+  $("launch").onclick=()=>busy(async()=>{await saveDraft();accept(await api("/launch","POST",selection(selected())));state.tab="production";state.offset=0;state.selected.clear();await reload();});
   $("archive").onclick=()=>busy(()=>itemAction("archive"));
   $("restore").onclick=()=>busy(()=>itemAction("restore"));
   $("remove").onclick=()=>busy(()=>itemAction("remove"));
@@ -557,7 +655,7 @@
   $("retry").onclick=()=>busy(()=>resumeChain(selected()));
   $("pause").onclick=()=>busy(async()=>accept(await api("/actions/"+(state.data.paused?"resume":"pause"),"POST",{})));
   async function move(direction){
-    await saveDraft();const ids=state.data.items.map(item=>item.id);
+    await saveDraft();const ids=inventory().map(item=>item.id);
     const positions=ids.map((id,index)=>state.selected.has(id)?index:-1).filter(index=>index>=0);
     if(direction>0)positions.reverse();
     for(const index of positions){const other=index+direction;if(other>=0&&other<ids.length&&!state.selected.has(ids[other]))[ids[index],ids[other]]=[ids[other],ids[index]];}
@@ -569,6 +667,8 @@
   $("image-dialog").addEventListener("click",event=>{if(event.target===$("image-dialog"))$("image-dialog").close();});
   $("image-dialog").addEventListener("close",()=>$("image-content").removeAttribute("src"));
   setInterval(updateDurations,1000);
-  setInterval(()=>refresh(),5000);
+  document.addEventListener("visibilitychange",visibilityChanged);
+  new MutationObserver(visibilityChanged).observe(root,{attributes:true,attributeFilter:["hidden"]});
+  window.addEventListener("beforeunload",()=>{clearTimeout(pollTimer);pollController?.abort();});
   refresh();
 })();

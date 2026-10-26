@@ -10,6 +10,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from fastapi import routing
 from fastapi.testclient import TestClient
 from panelforge.features.lab.web import create_app
 
@@ -22,17 +23,29 @@ class LabHttpContractsTests(unittest.TestCase):
         cls.app = create_app(SimpleNamespace())
 
     def test_recorded_routes_keep_their_paths_methods_names_statuses_and_parameters(self):
+        # Recent FastAPI versions retain included routers as nested route groups.
+        # Use the effective paths/metadata; older versions already expose a flat list.
+        iter_routes = getattr(routing, "iter_route_contexts", iter)
+        # WebSocket contexts carry their effective path on a Starlette route.
+        registered_routes = tuple(getattr(context, "starlette_route", None) or context
+                                  for context in iter_routes(self.app.routes))
         for expected in self.contract["routes"]:
             with self.subTest(path=expected["path"], method=expected["method"]):
-                routes = [route for route in self.app.routes
+                routes = [route for route in registered_routes
                           if getattr(route, "path", None) == expected["path"]
-                          and (expected["method"] in getattr(route, "methods", ())
-                               or (expected["method"] == "WEBSOCKET" and not hasattr(route, "methods")))]
+                          and (expected["method"] in (getattr(route, "methods", None) or ())
+                               or (expected["method"] == "WEBSOCKET"
+                                   and isinstance(getattr(route, "original_route", route), routing.APIWebSocketRoute)))]
                 self.assertEqual(len(routes), 1)
                 route = routes[0]
                 self.assertEqual(route.endpoint.__name__, expected["endpoint"])
                 self.assertEqual(getattr(route, "status_code", None), expected["status_code"])
-                self.assertEqual(route.endpoint.__annotations__, expected["annotations"])
+                annotations = expected["annotations"]
+                if expected["path"] == "/":
+                    # Lot 4 renders the same HTML endpoint from a versioned
+                    # asset snapshot instead of streaming the source file.
+                    annotations = {**annotations, "return": "HTMLResponse"}
+                self.assertEqual(route.endpoint.__annotations__, annotations)
 
     def test_request_models_still_resolve_in_openapi_after_the_move(self):
         schema = self.app.openapi()

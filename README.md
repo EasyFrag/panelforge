@@ -41,6 +41,69 @@ Les tests ciblés sont `test_http_contracts.py` et `test_http_transports.py`, à
 par l’utilisateur avec `python -m unittest discover -s tests -p "test_http_*.py"`.
 Les originaux restent dans `historique/2026-10-22-patch2-http/`.
 
+L’**Usine** charge désormais 50 lignes par page et les réglages complets seulement
+à l’ouverture d’une fiche. Les sélections restent conservées entre pages ; la case
+globale sélectionne les lignes de la page affichée. Le suivi se rafraîchit toutes
+les 5 secondes dans l’Usine, avec des réponses réduites lorsque rien n’a changé.
+Dans un autre atelier, seuls les compteurs sont lus toutes les 15 secondes ; aucun
+rafraîchissement Usine n’est envoyé depuis un onglet navigateur masqué. Le retour
+dans la vue déclenche une actualisation en conservant le brouillon de réglages.
+Les routes `/api/video-factory/summary`, `/browse` et `/items/{id}` servent ces
+lectures. Un petit inventaire global d’identifiants, révisions et statuts conserve
+les actions entre pages et l’ordre de la file. L’API de snapshot complète reste
+compatible ; les actions de l’interface demandent `compact=true` pour éviter de
+renvoyer tout l’historique après chaque modification.
+
+Au prochain démarrage du Lab, `workspace/system/startup-timings.jsonl` enregistrera
+les durées réelles et CPU des phases de construction et des reprises des services,
+sans modifier leur ordre. Une ligne est écrite en fin de démarrage ou sur exception,
+avec au plus 64 phases ; rotation à 256 Kio vers un unique fichier `.1`. Les imports
+Python précédant `build_app` et le chargement du navigateur sont hors mesure ; un
+arrêt brutal avant la fin ne produit pas de ligne. Aucun prompt n’est enregistré.
+Le statut `ready` signifie que les méthodes de démarrage sont revenues, pas que
+tous les travaux de fond sont terminés. Le patch nécessite un redémarrage du Lab,
+puis un rechargement des pages, à effectuer lorsque les productions le permettent.
+Les tests ciblés, à lancer par l’utilisateur, sont :
+
+```powershell
+python -m unittest tests.test_factory_views tests.test_factory_views_browser tests.test_video_factory_web tests.test_startup_timings
+```
+
+L’**historique KREA2** se charge indépendamment des ressources indispensables au
+formulaire. Sa lenteur ou son indisponibilité n’interrompt plus la chaîne de
+création du projet, préparation du prompt et mise en file de l’image. Le bouton
+reste occupé jusqu’à l’accusé de mise en file ; les erreurs d’historique restent
+dans son panneau, avec nouvelle tentative via Actualiser ou au retour dans la vue.
+Les lectures d’historique sont regroupées par onglet, annulées lorsqu’il est masqué
+et leurs réponses périmées sont ignorées. Cette suspension ne touche pas une
+commande de création/préparation/rendu engagée dans l’onglet.
+
+`/api/image-lab/krea2-assisted/project-summaries?limit=30` fournit les noms,
+compteurs, statuts et aperçus sans conversations ni essais complets (limite 100).
+Les résumés en mémoire suivent les écritures durables et sont construits pendant
+la reprise existante de la file, sans second parcours de la bibliothèque. Après
+initialisation, les rafraîchissements ne relisent pas les fichiers de projets et
+ne consultent pas ComfyUI. Une utilisation isolée du store charge seulement les
+résumés manquants demandés. Les anciens endpoints complets restent compatibles ;
+les imports externes demandent toujours une reconstruction explicite de l’index.
+
+Les aperçus utilisent `/api/assets/{id}/thumbnail?v=1` : PNG de 320 pixels maximum,
+sans métadonnées du prompt, générés à la demande avec Pillow. Le cache partagé du
+serveur est limité à 16 Mio et 256 images ; au plus deux conversions s’exécutent
+simultanément. Les demandes en attente ne réservent pas les threads HTTP. La
+première lecture vérifie l’asset source ; les suivantes réutilisent la miniature.
+Les assets étant immuables, un nouvel ID ou une nouvelle version de conversion
+invalide l’aperçu ; les originaux restent inchangés. Ce cache mémoire repart vide
+au redémarrage, sans précalcul ; le navigateur peut conserver les miniatures.
+Le lot 2 nécessite un redémarrage du Lab puis un rechargement des pages. Il ne
+rend pas durable la commande navigateur après fermeture de l’onglet.
+
+Tests du lot 2, à exécuter par l’utilisateur :
+
+```powershell
+python -m unittest tests.test_krea2_history tests.test_krea2_history_browser tests.test_image_thumbnails tests.test_krea2_assisted_index tests.test_krea2_assisted_poll_browser tests.test_http_contracts
+```
+
 PanelForge est un atelier local pour construire un canon visuel cohérent, qualifier des recettes ComfyUI puis produire des panels narratifs à partir d’assets approuvés.
 
 Le projet reste un monolithe modulaire : ComfyUI sert à découvrir manuellement les workflows, tandis que PanelForge les exécute comme des recettes explicites, versionnées et traçables.
@@ -111,6 +174,63 @@ mémoire globale proposée au LLM reste limitée aux recettes déjà publiées e
 ressources réellement exposées ; un essai ou une discussion ne l’altère jamais.
 La racine d’export peut être remplacée par
 `PANELFORGE_KREA2_CREATIONS_ROOT` ou `--krea2-creations-root`.
+
+### Image Lab — création batch
+
+L’onglet **Création batch**, à côté de Création assistée, présente directement
+le formulaire de lancement, sans historique ni panneau repliable. Charger un CSV
+UTF-8 (BOM accepté), avec une colonne `intention` et une colonne `nom` facultative.
+Virgules ou points-virgules sont acceptés ; entourer de guillemets les intentions
+contenant des séparateurs ou des retours à la ligne. Les entrées vides sont ignorées,
+les doublons conservés. Limites : 500 intentions, 8 Mio et 12 000 caractères par
+intention. Un fichier d’exemple est fourni dans `docs/examples/creation-batch.csv`.
+
+V6 est sélectionnée initialement, les inspirations locales sont désactivées et
+Gemma 4 local est proposé avec **Local · Unsloth** coché. Le preset est obligatoire.
+Langue et direction artistique restent sélectionnables (direction avec V6).
+Une image est produite pour chaque intention. Le checkpoint, les LoRA, le format
+et la résolution viennent du preset ; le workflow et le sampling proviennent
+de son essai source lorsqu’il existe, sinon des défauts Assisted historiques.
+Les réglages et la direction sont copiés au lancement et ne suivent pas les
+modifications ultérieures du catalogue.
+
+Le suivi à droite sépare prompt LLM et rendu KREA2, avec aperçus de 840 px maximum
+au survol et ouverture de l’original dans une fenêtre centrée au clic. Les deux
+étapes réussies indiquent **Terminé**. Les barres utilisent la progression disponible,
+dont les étapes des deux passes KREA2 ; une progression non mesurable reste animée
+sans pourcentage. La position affichée est celle de la file machine partagée,
+y compris lorsque DLSS occupe le PC local. Refresh conserve le CSV et les choix en cours. Le suivi
+cesse d’interroger le serveur lorsque l’atelier ou l’onglet est masqué.
+
+Les lots sont persistés dans `workspace/creation_batches`. Les prompts sont préparés
+dans l’ordre et chaque image rejoint la file KREA2 dès que son prompt est prêt.
+Le prompt suivant n’attend pas l’image précédente ; le suivi et la préparation des
+rendus fonctionnent indépendamment du LLM, en respectant les réservations de ressources existantes. Fermer
+l’onglet n’arrête pas la production. Un identifiant de lancement évite les doubles
+soumissions ; une erreur reste limitée à sa ligne. Après redémarrage, les prompts
+et essais déjà sauvegardés sont réutilisés. Un appel LLM interrompu sans résultat
+durable est marqué en erreur, sans appel automatique supplémentaire. Les envois
+ComfyUI ambigus gardent les protections de la file Assisted. Une seule instance
+d’écriture par workspace reste requise.
+
+Chaque image terminée propose **8 + 4** pour un nouveau tirage du même prompt avec
+le profil **Finition 4 steps · 8 + 4** : l’aperçu s’ajoute sur la même ligne.
+**DA** applique une direction artistique au prompt canonique et crée une sous-ligne
+**1.1**, **1.2**, etc. **Preset** crée également une sous-ligne, avec un nouveau
+prompt préparé à partir de l’intention et du preset choisi. Les originaux et les
+réglages de chaque variante sont conservés ; les commandes répétées après perte
+de réponse réutilisent leur identifiant. Les fichiers de batch de première version
+restent lisibles. Limites : 50 variantes de rendu supplémentaires par ligne et
+2 000 lignes en incluant les variantes créatives.
+
+Le **+ blanc sur bouton violet**, à côté de chaque aperçu, envoie cette image en
+préparation dans l’Usine. Il devient une **coche verte** après confirmation, avec
+l’infobulle « Envoyé à l’usine ». Le reçu est conservé côté serveur et l’envoi ne
+lance pas automatiquement la production vidéo.
+
+Tests à lancer par l’utilisateur :
+`python -m unittest tests.test_creation_batch tests.test_creation_batch_variants tests.test_creation_batch_web tests.test_creation_batch_browser`.
+Ils utilisent des doublures et des fichiers temporaires, sans appel réel LLM/GPU.
 
 ### Image Lab — modification KREA2
 
@@ -307,8 +427,9 @@ notamment `krea2.service.render_queue` (lecture de la file par l’interface) et
 des threads d’un même processus. Le journal est écrit à la fin des opérations :
 l’ordre des lignes n’est donc pas celui de leur début.
 
-Dans `aggregates`, `projects.*.lock_wait/lock_held` mesure le verrou du store.
-`projects.list.enumerate` compte les entrées parcourues et les projets trouvés ;
+Dans `aggregates`, `projects.*.lock_wait/lock_held` mesure les verrous du stockage.
+`projects.index.enumerate` compte les entrées parcourues et les projets trouvés
+lors de l’initialisation ; `projects.index.recover` mesure la récupération de la file.
 `projects.list.load` compte les projets effectivement chargés.
 `projects.read` sépare la lecture des JSON de `projects.decode` (JSON et objets
 du domaine). `projects.serialize/encode`, `projects.write.flush`,
@@ -319,6 +440,8 @@ thread dans la phase ; un écart avec la durée écoulée peut aussi venir d’u
 verrou, de l’ordonnancement ou du GIL, et ne prouve pas une attente disque.
 Les intervalles des agrégats couvrent plusieurs appels ; utiliser les phases
 individuelles du verrou de service pour corréler précisément une contention.
+Un agrégat `mixed_locks=true` combine plusieurs verrous de projets et ne porte
+donc pas de `lock_id` unique.
 Les phases utilisent une horloge monotone et peuvent s’imbriquer : leurs durées
 ne s’additionnent pas toutes. Les agrégats fournissent nombre, cumul, maximum
 et début/fin ; le cumul des polls exclut les pauses entre eux.
@@ -326,6 +449,47 @@ et début/fin ; le cumul des polls exclut les pauses entre eux.
 uniquement ses horodatages serveur. Une réponse HTTP lente ne suffit pas à
 accuser le réseau : elle inclut aussi l’attente côté serveur. Les temps LLM
 restent dans `llm_calls.json`.
+
+### File KREA2 et historique des projets
+
+La file KREA2 utilise un index en mémoire des essais actifs, alimenté après
+chaque sauvegarde réussie. Les fichiers `krea2_assisted/*/project.json` restent
+la référence durable ; leurs formats et les ordres de file sont conservés.
+Au démarrage du worker, l’index retrouve une fois les essais à reprendre et
+le dernier ordre connu. Les consultations de file, la sélection suivante,
+l’attribution d’un ordre et les réveils d’un worker déjà actif ne rescannent
+ensuite plus l’historique. La coordination GPU existante reste utilisée.
+
+La liste récente conserve en mémoire les identifiants et dates de modification,
+puis ne lit que les projets demandés. Ses lectures ne retiennent pas le verrou
+global du service ; les lectures de fichiers sont protégées par projet.
+Les récupérations de rendus détachés partagent le verrou d’exécution du worker
+pour éviter les doubles imports. Leurs appels ComfyUI et ceux des annulations
+s’effectuent hors du verrou global ; l’état courant est revérifié avant de
+sauvegarder, pour préserver une annulation ou une modification concurrente.
+
+Cet index suppose un seul Lab écrivant dans le workspace, via le store commun.
+Après une importation, restauration ou modification externe des fichiers,
+redémarrer le Lab une fois ses travaux terminés pour reconstruire les vues.
+Les outils internes peuvent appeler explicitement `rebuild_index()` avant
+de reprendre le travail. Un projet illisible bloque la récupération de la
+file avec une erreur explicite ; il n’est pas ignoré et le scan n’est pas
+répété à chaque poll. Corriger le fichier puis reconstruire ou redémarrer.
+La liste récente et l’accès direct aux autres projets restent indépendants
+de cette récupération, tant qu’ils ne demandent pas le fichier illisible.
+
+Les traces passives restent disponibles. `projects.index.enumerate` et
+`projects.index.recover` mesurent la construction initiale ; elles doivent
+disparaître des consultations suivantes. `projects.queue`, `projects.lookup`
+et `projects.get.lock_wait` mesurent respectivement l’accès à la file, aux
+verrous de projets et au fichier visé. Comparer les attentes du worker avant
+et après activation, sans additionner les phases imbriquées ou le calcul GPU
+qui se déroule en parallèle. Le coût du démarrage et le gain réel restent à
+mesurer sur les générations habituelles.
+
+Tests hors ligne à lancer par l’utilisateur :
+`python -m unittest discover -s tests -p "test_krea2_assisted*.py"`, puis
+`python -m unittest discover -s tests -p "test_image_timings.py"`.
 
 ## Architecture
 

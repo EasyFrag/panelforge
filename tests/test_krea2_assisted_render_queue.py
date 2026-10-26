@@ -1,6 +1,7 @@
 """Queue regressions using only fake renderers and temporary project stores."""
 
 from dataclasses import asdict, replace
+from concurrent.futures import ThreadPoolExecutor
 from itertools import count
 import json
 from pathlib import Path
@@ -133,8 +134,8 @@ class AssistedRenderQueueTest(unittest.TestCase):
         record = records[0]
         self.assertEqual(record["operation"], "krea2.service.render_queue")
         groups = record["aggregates"]
-        self.assertEqual(groups["projects.list.enumerate"]["projects"], 1)
-        self.assertEqual(groups["projects.list.load"]["projects"], 1)
+        self.assertEqual(groups["projects.index.enumerate"]["projects"], 1)
+        self.assertEqual(groups["projects.index.recover"]["projects"], 1)
         self.assertEqual(groups["projects.read"]["duration_ms"], 1000)
         self.assertEqual(groups["projects.decode"]["duration_ms"], 0)
         self.assertEqual(record["dropped_phases"], 0)
@@ -151,7 +152,7 @@ class AssistedRenderQueueTest(unittest.TestCase):
             store.save(before)
             self.assertEqual(store.get(self.project.project_id), before)
         groups = records[0]["aggregates"]
-        self.assertEqual(groups["projects.list.enumerate"]["projects"], 4)
+        self.assertEqual(groups["projects.index.enumerate"]["projects"], 2)
         self.assertEqual(groups["projects.list.load"]["projects"], 1)
         self.assertEqual(groups["projects.read"]["count"], 3)
         self.assertEqual(groups["projects.write.fsync"]["count"], 1)
@@ -202,6 +203,120 @@ class AssistedRenderQueueTest(unittest.TestCase):
         self.assertEqual(self.service.render_queue()["items"][0]["position"], 1)
         self.service.execute_attempt(self.project.project_id, second.attempt_id)
         self.assertEqual(len(self.comfy.workflows), 1)
+
+    def test_queue_poll_and_order_use_warm_index_without_project_reads(self):
+        attempt = self.prepare()
+        with patch.object(self.service.projects, "get", side_effect=AssertionError("project read")), \
+                patch.object(self.service.projects, "list", side_effect=AssertionError("history scan")), \
+                patch.object(Path, "iterdir", side_effect=AssertionError("directory scan")):
+            for _ in range(10):
+                self.assertEqual(self.service.render_queue()["items"][0]["attempt_id"], attempt.attempt_id)
+            self.assertGreater(self.service._next_queue_order(), attempt.queue_order)
+
+    def test_starting_live_worker_only_wakes_it(self):
+        self.service._render_worker = SimpleNamespace(is_alive=lambda: True)
+        try:
+            with patch.object(self.service, "_pending_renders", side_effect=AssertionError("rescan")), \
+                    patch.object(self.service, "_enqueue_render", side_effect=AssertionError("reenqueue")):
+                self.service.start_render_worker()
+            self.assertTrue(self.service._render_wake.is_set())
+        finally:
+            self.service._render_worker = None
+
+    def test_idle_worker_does_not_scan_history_after_recovery(self):
+        self.service.projects.pending_renders()
+        with patch.object(Path, "iterdir", side_effect=AssertionError("idle scan")), \
+                patch.object(Path, "read_text", side_effect=AssertionError("idle read")):
+            for _ in range(5):
+                self.assertFalse(self.service.process_next_render())
+
+    def test_slow_history_read_does_not_hold_service_lock_during_enqueue(self):
+        archived = self.service.create_project(name="Archive", intention="Old", model_id="local")
+        self.prepare()  # Recover indexes before simulating a slow display read.
+        entered, release = Event(), Event()
+        original = Path.read_text
+
+        def read(path, *args, **kwargs):
+            if path.parent.name == archived.project_id:
+                entered.set()
+                if not release.wait(timeout=5):
+                    raise TimeoutError("history read not released")
+            return original(path, *args, **kwargs)
+
+        with patch.object(Path, "read_text", read), ThreadPoolExecutor(max_workers=2) as pool:
+            history = pool.submit(self.service.list)
+            try:
+                self.assertTrue(entered.wait(timeout=2))
+                queued = pool.submit(self.prepare, prompt="New queued image")
+                self.assertEqual(queued.result(timeout=2).status, Status.QUEUED)
+            finally:
+                release.set()
+            self.assertEqual(len(history.result(timeout=2)), 2)
+
+    def test_reconciliation_does_not_overwrite_concurrent_project_edit(self):
+        attempt = self.prepare()
+        store = self.service.projects
+        project = store.get(self.project.project_id)
+        store.save(project.replace_attempt(attempt.start("remote-1", "a" * 64)))
+        self.comfy.block_first = True
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            refreshing = pool.submit(self.service.get, project.project_id)
+            try:
+                self.assertTrue(self.comfy.entered.wait(timeout=2))
+                # A detached import holds the drain guard, but not the global service lock.
+                queued = pool.submit(self.prepare, prompt="Edited while reconciling")
+                queued_attempt = queued.result(timeout=2)
+                self.assertFalse(self.service.process_next_render())
+            finally:
+                self.comfy.release.set()
+            result = refreshing.result(timeout=2)
+        self.assertEqual(result.current_prompt, "Edited while reconciling")
+        self.assertEqual(result.attempt(queued_attempt.attempt_id).status, Status.QUEUED)
+        self.assertEqual(result.attempt(attempt.attempt_id).status, Status.SUCCEEDED)
+        self.assertEqual(self.comfy.workflows, [])
+
+    def test_cancellation_during_detached_reconciliation_keeps_cancelled_state(self):
+        attempt = self.prepare()
+        store = self.service.projects
+        project = store.get(self.project.project_id)
+        store.save(project.replace_attempt(attempt.start("remote-1", "a" * 64)))
+        self.comfy.block_first = True
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            refreshing = pool.submit(self.service.get, project.project_id)
+            try:
+                self.assertTrue(self.comfy.entered.wait(timeout=2))
+                cancelled = pool.submit(self.service.cancel_attempt, project.project_id, attempt.attempt_id)
+                self.assertEqual(cancelled.result(timeout=2).attempt(attempt.attempt_id).status, Status.CANCELLED)
+            finally:
+                self.comfy.release.set()
+            self.assertEqual(refreshing.result(timeout=2).attempt(attempt.attempt_id).status, Status.CANCELLED)
+
+    def test_slow_remote_cancel_does_not_block_enqueue_or_overwrite_completion(self):
+        attempt = self.prepare()
+        store = self.service.projects
+        project = store.get(self.project.project_id)
+        store.save(project.replace_attempt(attempt.start("remote-1", "a" * 64)))
+        entered, release = Event(), Event()
+
+        def cancel(execution_id):
+            entered.set()
+            if not release.wait(timeout=5):
+                raise TimeoutError("cancel not released")
+            return SimpleNamespace(action="removed_from_queue")
+
+        with patch.object(self.comfy, "cancel_execution", cancel), ThreadPoolExecutor(max_workers=2) as pool:
+            cancellation = pool.submit(self.service.cancel_attempt, project.project_id, attempt.attempt_id)
+            try:
+                self.assertTrue(entered.wait(timeout=2))
+                queued = pool.submit(self.prepare, prompt="During cancellation")
+                second = queued.result(timeout=2)
+                current = store.get(project.project_id)
+                store.save(current.replace_attempt(current.attempt(attempt.attempt_id).succeed("asset-finished")))
+            finally:
+                release.set()
+            result = cancellation.result(timeout=2)
+        self.assertEqual(result.attempt(attempt.attempt_id).status, Status.SUCCEEDED)
+        self.assertEqual(result.attempt(second.attempt_id).status, Status.QUEUED)
 
     def test_queued_attempts_reserve_visible_global_fifo_positions(self):
         coordinator = MachineWorkCoordinator(monitor_interval=.01)

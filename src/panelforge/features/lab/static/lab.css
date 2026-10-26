@@ -1745,3 +1745,7 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .prompt-recipes-dialog summary { cursor:pointer; }
 .prompt-trace-call { border-top:1px solid var(--line,#d6d0c8); padding:.8rem 0; }
 @media(max-width:850px) { .h3-render-setup, .prompt-recipes-selectors { grid-template-columns:1fr; } .prompt-recipes-dialog { padding:.8rem; } .prompt-recipes-actions button { flex:1 1 45%; } }
+
+/* The load status is outside the inert workshop so retry stays accessible. */
+.workshop-loading { display: flex; align-items: center; gap: 1rem; padding: 1rem; margin: 1rem; border: 1px solid #76768a; border-radius: 8px; }
+.workshop-loading[hidden] { display: none; }

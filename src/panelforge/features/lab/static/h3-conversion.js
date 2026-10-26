@@ -121,4 +121,7 @@
   open.addEventListener('click', () => { if (target) showProject(target); });
   $('h3-adaptations-refresh').addEventListener('click', refresh);
   document.querySelector('[data-lab-view="ref2v-direct"]')?.addEventListener('click', refresh);
+  document.addEventListener('panelforge:workshop-ready', event => {
+    if (event.detail.view === 'ref2v-direct') refresh();
+  });
 })();

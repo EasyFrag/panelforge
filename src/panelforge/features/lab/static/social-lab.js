@@ -585,4 +585,9 @@
       if (projectId) await openProject(projectId);
     },
   });
+  document.addEventListener("panelforge:workshop-ready", event => {
+    if (event.detail.view === "social-lab") initialize().catch(error => {
+      showError(elements.formMessage, error.message);
+    });
+  });
 })();

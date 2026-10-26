@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from copy import deepcopy
 from panelforge.application.h3_ref2v_conversion import H3Ref2VConversionService
 from .media_analysis_web import media_analysis_router
 from pathlib import Path
 from typing import Any, Callable, Literal
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, Response
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, Response
+from .static_assets import LabAssets
 from panelforge import __version__
 from panelforge.application import ChangeViewRunner, H3RenderService, Krea2AssistedService, Krea2EditService, ModelRuntimeControl, PromptCompositionService, PromptLabService, SocialLabService
 from .change_view_web import change_view_router
+from .creation_batch_web import creation_batch_router
 from .h3_render_web import H3RenderAttemptBody, h3_render_router, serialize_h3_render_project
 from .krea2_assisted_web import Krea2AssistedAttemptBody, krea2_assisted_router, serialize_krea2_assisted_project
 from .krea2_edit_web import krea2_edit_router
@@ -44,6 +45,7 @@ def create_app(
     story_v2=None,
     cooking_recipes=None,
     krea2_assisted: Krea2AssistedService | None = None,
+    creation_batch=None,
     dlss=None,
     social_lab: SocialLabService | None = None,
     media_analysis=None,
@@ -62,6 +64,7 @@ def create_app(
     video_preview_connector: Callable[[str], Any] | None = None,
     runtime_monitor_connector: Callable[[str], Any] | None = None,
     instance_info: dict[str, Any] | None = None,
+    startup_timings=None,
 ) -> FastAPI:
     """Create an app around injected application services."""
 
@@ -79,27 +82,31 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app):
-        if machine_work is not None:
-            machine_work.start_temperature_sampling()
-        if krea2_assisted is not None:
-            krea2_assisted.start_render_worker()
-        if qwen_edit is not None:
-            qwen_edit.start_worker()
-        if minimax_edit is not None:
-            minimax_edit.start_worker()
-        if image_journeys is not None:
-            image_journeys.start_worker()
-        if video_factory is not None:
-            video_factory.start()
-        if story_v2 is not None:
-            story_v2.start_worker()
-        if cooking_recipes is not None:
-            cooking_recipes.start_worker()
-        if mobile_server is not None:
-            mobile_server.start()
+        starters = (
+            ("thermal", machine_work, "start_temperature_sampling"),
+            ("krea2", krea2_assisted, "start_render_worker"),
+            ("creation_batch", creation_batch, "start_worker"),
+            ("qwen", qwen_edit, "start_worker"), ("minimax", minimax_edit, "start_worker"),
+            ("image_journeys", image_journeys, "start_worker"),
+            ("factory", video_factory, "start"), ("story_v2", story_v2, "start_worker"),
+            ("recipes", cooking_recipes, "start_worker"), ("mobile", mobile_server, "start"),
+        )
+        try:
+            for name, service, method in starters:
+                if service is not None:
+                    with startup_timings.phase("startup."+name) if startup_timings else nullcontext():
+                        getattr(service, method)()
+        except BaseException:
+            if startup_timings:
+                startup_timings.finish("failed")
+            raise
+        if startup_timings:
+            startup_timings.finish("ready")
         try:
             yield
         finally:
+            if creation_batch is not None:
+                await asyncio.to_thread(creation_batch.stop_worker)
             if cooking_recipes is not None:
                 await asyncio.to_thread(cooking_recipes.stop_worker)
             if story_v2 is not None:
@@ -183,22 +190,16 @@ def create_app(
 
     h3_conversion = H3Ref2VConversionService(h3_render) if h3_render is not None else None
 
-    @app.middleware("http")
-    async def disable_lab_asset_cache(request, call_next):
-        response = await call_next(request)
-        if request.url.path == "/" or request.url.path.startswith("/static/"):
-            response.headers["Cache-Control"] = "no-store"
-        return response
-
     from .dlss_web import register_dlss_routes
 
     register_dlss_routes(app, dlss)
 
-    app.mount("/static", StaticFiles(directory=static_root), name="static")
+    assets = LabAssets(static_root)
+    app.mount("/static", assets, name="static")
 
     @app.get("/", include_in_schema=False)
-    def index() -> FileResponse:
-        return FileResponse(index_path, headers={"Cache-Control": "no-store"})
+    def index() -> HTMLResponse:
+        return assets.index()
 
     @app.get("/api/instance")
     def instance_identity(response: Response) -> dict[str, Any]:
@@ -221,6 +222,7 @@ def create_app(
     app.include_router(krea2_resources_router(krea2_resources=krea2_resources))
 
     app.include_router(krea2_assisted_router(image_catalogs=image_catalogs, krea2_assisted=krea2_assisted, krea2_edit=krea2_edit, runner=runner))
+    app.include_router(creation_batch_router(creation_batch))
 
     app.include_router(krea2_edit_router(image_catalogs=image_catalogs, krea2_edit=krea2_edit, krea2_resources=krea2_resources, runner=runner))
 

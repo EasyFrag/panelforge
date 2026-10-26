@@ -14,6 +14,29 @@ from tests.test_video_factory import MemoryStore, FakeWorkflows
 from tests.test_media_analysis_browser import MediaAnalysisBrowserTest, STATIC
 
 
+def factory_browser_source():
+    """Keep existing editor fixtures; paginated transport has dedicated tests."""
+    bridge = r"""
+      const legacyFactoryRequest=window.PanelForgeLabCore.request;
+      window.PanelForgeLabCore.request=async(url,options={})=>{
+        options={method:"GET",...options};
+        const path=new URL(url,"http://fixture").pathname;
+        if(path==="/api/video-factory/browse")return legacyFactoryRequest("/api/video-factory",options);
+        if(path==="/api/video-factory/summary"){
+          const data=await legacyFactoryRequest("/api/video-factory",options);
+          return {revision:data.revision,error_count:data.items.filter(i=>!i.archived_at&&Object.values(i.steps).some(s=>s.status==="failed")).length};
+        }
+        if((options.method||"GET")==="GET"&&/^\/api\/video-factory\/items\/[^/]+$/.test(path)){
+          const data=await legacyFactoryRequest("/api/video-factory",options);
+          return data.items.find(i=>i.id===decodeURIComponent(path.split("/").at(-1)));
+        }
+        return legacyFactoryRequest(path,options);
+      };
+      document.getElementById("video-factory-workspace").hidden=false;
+    """
+    return bridge + (STATIC / "video-factory.js").read_text(encoding="utf-8")
+
+
 class VideoFactoryHttpTest(unittest.TestCase):
     def setUp(self):
         self.adapter = FakeWorkflows()
@@ -204,7 +227,7 @@ class VideoFactoryBrowserTest(unittest.TestCase):
         '''
         self.run_browser(browsers[-1], '<meta charset="utf-8"><span id="vf-nav-errors"></span>' + markup +
                          '<pre id="result">PENDING</pre><script>' + bootstrap +
-                         (STATIC / "video-factory.js").read_text(encoding="utf-8") + scenario + '</script>')
+                         factory_browser_source() + scenario + '</script>')
 
     def test_send_stays_in_workshop_and_draft_survives_refresh(self):
         browsers = sorted((Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright").glob("chromium-*/chrome-win64/chrome.exe"))
@@ -274,7 +297,7 @@ class VideoFactoryBrowserTest(unittest.TestCase):
           document.getElementById('result').textContent='PASS';
         }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack;}})();
         '''
-        source = (STATIC / "video-factory.js").read_text(encoding="utf-8")
+        source = factory_browser_source()
         self.run_browser(browsers[-1], '<meta charset="utf-8"><span id="vf-nav-errors"></span>' + markup +
                          '<pre id="result">PENDING</pre><script>' + bootstrap + source + scenario + '</script>')
 
@@ -353,7 +376,7 @@ class VideoFactoryBrowserTest(unittest.TestCase):
         """
         self.run_browser(browsers[-1], '<meta charset="utf-8"><span id="vf-nav-errors"></span>' + markup +
             '<pre id="result">PENDING</pre><script>' + bootstrap +
-            (STATIC / 'video-factory.js').read_text(encoding='utf-8') + scenario + '</script>')
+            factory_browser_source() + scenario + '</script>')
 
 
     def test_episode_boundaries_english_marker_and_legacy_dlss_progress(self):
@@ -440,7 +463,7 @@ class VideoFactoryBrowserTest(unittest.TestCase):
         """
         self.run_browser(browsers[-1], '<meta charset="utf-8"><span id="vf-nav-errors"></span>' + markup +
             '<pre id="result">PENDING</pre><script>' + bootstrap +
-            (STATIC / 'video-factory.js').read_text(encoding='utf-8') + scenario + '</script>')
+            factory_browser_source() + scenario + '</script>')
 
 
     def test_archive_tab_bulk_restore_duplicate_receipt_and_compact_grid(self):
@@ -550,7 +573,7 @@ class VideoFactoryBrowserTest(unittest.TestCase):
         css = (STATIC / 'video-factory.css').read_text(encoding='utf-8') + (STATIC / 'video-factory-monitor.css').read_text(encoding='utf-8')
         self.run_browser(browsers[-1], '<meta charset="utf-8"><style>'+css+'</style><span id="vf-nav-errors"></span>' + markup +
             '<pre id="result">PENDING</pre><script>' + bootstrap +
-            (STATIC / 'video-factory.js').read_text(encoding='utf-8') + scenario + '</script>')
+            factory_browser_source() + scenario + '</script>')
 
 
 if __name__ == "__main__": unittest.main()

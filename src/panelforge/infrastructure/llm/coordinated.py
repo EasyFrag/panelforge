@@ -13,6 +13,7 @@ from panelforge.application import (
     StreamPhase,
 )
 from panelforge.domain.production import ComputeResource, ProductionWorkload
+from panelforge.application.work_context import llm_owner_prefix
 
 
 class CoordinatedMultimodalGateway:
@@ -24,7 +25,7 @@ class CoordinatedMultimodalGateway:
         return self._delegate.list_models()
 
     def complete(self, request: CompletionRequest) -> CompletionResult:
-        owner = f"llm-{uuid4().hex}"
+        owner = f"{llm_owner_prefix.get()}-{uuid4().hex}"
         with self._coordinator.lease(
             owner, ComputeResource.LOCAL_GPU, ProductionWorkload.LLM,
             request.operation_id or "LLM",
@@ -40,7 +41,7 @@ class CoordinatedMultimodalGateway:
             return result
 
     def stream(self, request: CompletionRequest) -> Iterator[CompletionStreamEvent]:
-        owner = f"llm-{uuid4().hex}"
+        owner = f"{llm_owner_prefix.get()}-{uuid4().hex}"
         yield CompletionStreamEvent(StreamEventKind.STATUS, StreamPhase.QUEUED,
                                     "Planifié · en attente du LLM")
         with self._coordinator.lease(

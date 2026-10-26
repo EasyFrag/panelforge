@@ -245,7 +245,10 @@
   controls();
   // Restore the compact mode without requesting catalogs until Ref2V is opened.
   if (readMemory('panelforge.ref2v.mode') === 'dance') {
-    const observer = new MutationObserver(() => { if (!workspace.hidden) { observer.disconnect(); selectMode('dance'); } });
-    observer.observe(workspace, {attributes:true, attributeFilter:['hidden']});
+    if (!workspace.hidden) selectMode('dance');
+    else {
+      const observer = new MutationObserver(() => { if (!workspace.hidden) { observer.disconnect(); selectMode('dance'); } });
+      observer.observe(workspace, {attributes:true, attributeFilter:['hidden']});
+    }
   }
 })();

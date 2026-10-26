@@ -15,6 +15,7 @@ SRC_ROOT = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
 from panelforge.infrastructure.network_profiles import resolve_network_configuration, describe_network
 from panelforge.infrastructure.instance_info import capture_instance_info
+from panelforge.infrastructure.startup_timings import trace_startup_build
 from panelforge.infrastructure.network_transports import (
     direct_http_opener, direct_preview_connection, direct_thermal_connection, direct_dlss_connection,
 )
@@ -44,6 +45,10 @@ from panelforge.application import (
     SocialLabService,
 )
 from panelforge.features.lab.web import create_app
+from panelforge.application.creation_batch import CreationBatchService
+from panelforge.infrastructure.creation_batch_progress import CreationBatchProgress
+from panelforge.infrastructure.storage.creation_batch import LocalCreationBatchStore
+from panelforge.infrastructure.creation_batch_thumbnails import PillowBatchThumbnails
 from panelforge.infrastructure.comfy import ComfyHttpClient
 from panelforge.infrastructure.llm import (
     LlamaSwapAdminClient,
@@ -284,8 +289,10 @@ def parse_args(argv=None) -> argparse.Namespace:
     return args
 
 
-def build_app(args: argparse.Namespace):
+@trace_startup_build
+def build_app(args: argparse.Namespace, *, startup):
     instance_info = capture_instance_info(PROJECT_ROOT, args.workspace)
+    startup.mark("build.identity")
     explicit_network = getattr(args, "network_mode", None) is not None
     http_options = {"opener": direct_http_opener()} if explicit_network else {}
     llm_options = {"trust_env": False} if explicit_network else {}
@@ -306,6 +313,7 @@ def build_app(args: argparse.Namespace):
     ), H3_RENDER_WORKFLOW_DIRECTORY)
     krea2_batch_workflow = load_krea2_batch_workflow(KREA2_BATCH_WORKFLOW_DIRECTORY)
     krea2_edit_workflow = load_krea2_edit_workflow(KREA2_EDIT_WORKFLOW_DIRECTORY)
+    startup.mark("build.workflows")
     dlss_root = Path(getattr(args, "dlss_root", r"D:\AI\ComfyUI_windows_portable"))
     dlss_output_root = Path(getattr(args, "dlss_output_root", r"D:\AI\PanelForge\LocalOutput"))
     dlss_fallback_roots = (dlss_root / "ComfyUI/output",)
@@ -383,6 +391,7 @@ def build_app(args: argparse.Namespace):
         **({"local_files_only": True} if getattr(args, "network_mode", None) == "lan" else {}),
     )
     prompt_examples.start_indexing()
+    startup.mark("build.storage_and_gateways")
     prompt_wildcards = LocalKrea2WildcardLibrary(
         getattr(args, "krea2_wildcards_root", DEFAULT_KREA2_WILDCARDS_ROOT),
     )
@@ -425,6 +434,7 @@ def build_app(args: argparse.Namespace):
         llm_calls,
         trace_store=llm_traces,
     )
+    startup.mark("build.language_services")
     krea2_resources = LocalKrea2ResourceCatalog(
         models_root=getattr(
             args,
@@ -526,6 +536,7 @@ def build_app(args: argparse.Namespace):
         work_coordinator=machine_work, run_timeout=getattr(args, "krea2_edit_run_timeout", 3600.0),
         poll_interval=args.poll_interval,
     )
+    startup.mark("build.image_services")
     prompt_lab = PromptLabService(
         gateway=gateway,
         profiles=LocalPromptProfileCatalog(PROJECT_ROOT / "prompt_profiles"),
@@ -618,6 +629,7 @@ def build_app(args: argparse.Namespace):
                 return run.prompt
         return None
 
+    startup.mark("build.video_services")
     social_lab = SocialLabService(
         gateway=gateway,
         assets=assets,
@@ -686,6 +698,7 @@ def build_app(args: argparse.Namespace):
     from panelforge.infrastructure.factory_image_context import FactoryImageContext
     from panelforge.application.factory_monitoring import FactoryMonitoring
     from panelforge.infrastructure.storage.factory_timings import LocalFactoryTimingsStore
+    startup.mark("build.media_and_episodes")
     video_factory = VideoFactoryService(store=LocalVideoFactoryStore(args.workspace),
         monitoring=FactoryMonitoring(LocalFactoryTimingsStore(args.workspace)),
         outputs=VideoFactoryOutputs(dlss_output_root / "dlss", assets),
@@ -698,6 +711,7 @@ def build_app(args: argparse.Namespace):
     from panelforge.application.image_transition_sources import ImageTransitionSources
     from panelforge.infrastructure.storage.image_transitions import LocalImageTransitionStore
     from panelforge.infrastructure.image_transition_references import PillowTransitionReferences
+    startup.mark("build.factory")
     image_transitions = ImageTransitionService(
         store=LocalImageTransitionStore(args.workspace), assets=assets,
         images=PillowQwenEditImages(), reference_images=PillowTransitionReferences(), gateway=gateway, factory=video_factory,
@@ -720,10 +734,12 @@ def build_app(args: argparse.Namespace):
     from panelforge.application.cooking_recipe_production import CookingRecipeProduction
     from panelforge.infrastructure.storage.cooking_recipes import LocalCookingRecipeStore
     from panelforge.infrastructure.cooking_recipe_exports import CookingRecipeExports
+    startup.mark("build.journeys_and_stories")
     cooking_recipes = CookingRecipeService(LocalCookingRecipeStore(args.workspace), assets, PillowQwenEditImages(),
         CookingRecipePlanner(gateway, assets, PillowQwenEditImages()),
         CookingRecipeProduction(krea2_assisted, minimax_edit, video_factory, image_transitions.sources),
         exporter=CookingRecipeExports(assets))
+    startup.mark("build.recipes")
     mobile_server = None
     mobile_port = getattr(args, "mobile_port", 0)
     if mobile_port:
@@ -735,8 +751,12 @@ def build_app(args: argparse.Namespace):
         mobile = FactoryMobile(video_factory, LocalMobileStore(args.workspace), WebPushSender(args.workspace),
                                thermal_history=machine_work.thermal_history)
         mobile_server = LoopbackMobileServer(create_mobile_app(mobile), mobile_port)
+    creation_batch = CreationBatchService(LocalCreationBatchStore(args.workspace), krea2_assisted,
+                                         thumbnails=PillowBatchThumbnails(assets), factory=video_factory,
+                                         render_progress=CreationBatchProgress(krea2_assisted))
     return create_app(
         runner,
+        startup_timings=startup,
         instance_info=instance_info,
         video_factory=video_factory,
         image_transitions=image_transitions,
@@ -759,6 +779,7 @@ def build_app(args: argparse.Namespace):
         story_v2=story_v2,
         cooking_recipes=cooking_recipes,
         krea2_assisted=krea2_assisted,
+        creation_batch=creation_batch,
         social_lab=social_lab,
         media_analysis=media_analysis,
         stories=stories,

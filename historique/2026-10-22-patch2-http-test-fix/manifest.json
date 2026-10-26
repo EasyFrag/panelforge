@@ -1,0 +1,9 @@
+{
+  "reason": "Correct route inventory for nested routers in FastAPI 0.141.1; HTTP and WebSocket metadata retained.",
+  "original_file": "tests/test_http_contracts.py",
+  "original_sha256": "57bdab06da3195b9fae4babbf54f742436dc673c9321287615e46f022a1a5d78",
+  "previous_snapshot_commit": "5293a9a8206266668798e2dbd9743f7897f18858",
+  "application_code_changed": false,
+  "contract_fixture_changed": false,
+  "tests_executed_by_agent": false
+}

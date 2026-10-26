@@ -89,7 +89,7 @@
         '<span class="vf-monitor-value" title="'+escape(details)+'"><strong>'+counts.delivered+'/'+counts.total+'</strong> livrées</span>';
     }
     function detail() {
-      const state=getState(),item=state.data?.items.find(i=>i.id===state.focus),inspector=$("inspector");
+      const state=getState(),item=state.detail?.id===state.focus?state.detail:state.data?.items.find(i=>i.id===state.focus),inspector=$("inspector");
       if(!inspector)return;
       let node=$("monitor-detail");
       const which=item?.status==="preparation"?"preview":"main",value=source(which)?.items?.[item?.id];
@@ -154,6 +154,7 @@
       return next;
     }
     function previewSelection() {
+      if(root.hidden||document.visibilityState!=="visible"){clearTimeout(timer);requestId++;previewPending=false;previewRefreshKey="";return;}
       const state=getState(),items=getSelection(),m=data();
       const valid=state.tab==="preparation"&&!state.dirty&&items.length&&items.every(i=>i.ready&&i.status==="preparation")&&m;
       // Selection/configuration changes invalidate the preview; ordinary polls do not.
@@ -172,6 +173,7 @@
       previewRefreshKey=refreshKey;previewPending=true;
       const serial=++requestId,body={ids:items.map(i=>i.id),revisions:Object.fromEntries(items.map(i=>[i.id,i.revision]))};
       timer=setTimeout(async()=>{
+        if(root.hidden||document.visibilityState!=="visible"){previewPending=false;previewRefreshKey="";return;}
         try{
           const value=await request("/estimate","POST",body);
           if(serial!==requestId)return;
@@ -193,7 +195,7 @@
       previewSelection,
       row(item){return '<div class="vf-eta-row" data-vf-monitor-row="'+escape(item.id)+'">'+rowContent(item)+'</div>';},
       step(item,key){return item.steps[key].status==="running"?'<small class="vf-stage-eta" data-vf-monitor-item="'+escape(item.id)+'" data-vf-monitor-step="'+key+'"></small>':"";},
-      tick(){if(root.hidden)return;summary();rows();detail();renderPreview();}
+      tick(){if(root.hidden||document.visibilityState!=="visible")return;summary();rows();detail();renderPreview();}
     });
   }
   window.PanelForgeFactoryMonitor=Object.freeze({create});

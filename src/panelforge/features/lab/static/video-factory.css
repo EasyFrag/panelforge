@@ -48,3 +48,5 @@ main.vf-workspace{display:block;max-width:1760px;padding:1.5rem}
 .vf-result-actions>.vf-result-note,.vf-result-actions>.vf-export-error{grid-column:1/-1}
 .vf-tabs{flex-wrap:wrap}
 @media(max-width:700px){.vf-result-actions{grid-template-columns:repeat(2,minmax(0,1fr));width:210px}.vf-workspace[data-vf-view="results"] .vf-state,.vf-workspace[data-vf-view="archives"] .vf-state{min-width:210px;max-width:230px}}
+.vf-pagination { display: flex; justify-content: center; align-items: center; gap: 1rem; padding: 1rem; }
+.vf-pagination[hidden] { display: none; }

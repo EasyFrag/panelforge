@@ -7,6 +7,7 @@ from panelforge.domain.krea2_sampling import (
     Krea2AssistedSettings,
     as_batch_settings,
     sampling_for,
+    sampling_from_dict,
 )
 
 from collections.abc import Callable, Iterator, Mapping
@@ -19,6 +20,7 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from panelforge.domain.assets import Asset
+from panelforge.domain.creation_batch import CreationBatchConfig
 from panelforge.domain.krea2_assisted import (
     Krea2AssistedAttempt,
     Krea2AssistedAttemptStatus,
@@ -42,8 +44,10 @@ from panelforge.domain.krea2_art_direction import (
     compile_krea2_art_direction,
 )
 from panelforge.domain.krea2_lab import Krea2AspectRatio
-from panelforge.domain.krea2_assisted_workflows import DEFAULT_KREA2_ASSISTED_WORKFLOW
+from panelforge.domain.krea2_assisted_workflows import DEFAULT_KREA2_ASSISTED_WORKFLOW, KREA2_FLUX_KLEIN_WORKFLOW
 from panelforge.domain.recipes import RecipeRef
+from panelforge.domain.krea2_render_queue import Krea2RenderQueueEntry, PENDING_RENDER_STATUSES
+from panelforge.domain.krea2_history import Krea2ProjectSummary
 from panelforge.domain.production import ComputeResource, ProductionWorkload
 from panelforge.infrastructure.krea2_batch_recipes import Krea2VisualRecipe
 
@@ -56,7 +60,7 @@ from . import (
     krea2_assisted_v6,
 )
 from .production_resources import ResourceWaitCancelled
-from .image_timings import annotate, image_trace, phase, queue_age, timed, timed_lease, timed_lock
+from .image_timings import annotate, image_operation, image_trace, phase, queue_age, timed, timed_lease, timed_lock
 from .prompt_lab import (
     CompletionRequest,
     ImageInput,
@@ -70,12 +74,7 @@ from .prompt_lab import (
 )
 
 
-_RENDER_PENDING = {
-    Krea2AssistedAttemptStatus.QUEUED,
-    Krea2AssistedAttemptStatus.SUBMITTING,
-    Krea2AssistedAttemptStatus.RUNNING,
-    Krea2AssistedAttemptStatus.CANCEL_PENDING,
-}
+_RENDER_PENDING = PENDING_RENDER_STATUSES
 _AMBIGUOUS_SUBMISSION = (
     "Envoi à ComfyUI interrompu avant confirmation. La file attend : vérifiez la file ComfyUI "
     "avant de retirer cet essai. Le retirer ici n’annule pas un éventuel rendu distant."
@@ -115,6 +114,9 @@ class Krea2AssistedStore(Protocol):
     def save(self, project: Krea2AssistedProject) -> Krea2AssistedProject: ...
     def get(self, project_id: str) -> Krea2AssistedProject: ...
     def list(self, limit: int = 30) -> list[Krea2AssistedProject]: ...
+    def summaries(self, limit: int = 30) -> tuple["Krea2ProjectSummary", ...]: ...
+    def pending_renders(self) -> tuple[Krea2RenderQueueEntry, ...]: ...
+    def next_queue_order(self, now_ns: int) -> int: ...
     def save_compiled_workflow(self, project_id: str, attempt_id: str, workflow: dict[str, Any]) -> str: ...
 
 
@@ -392,6 +394,40 @@ class Krea2AssistedService:
             ) if preset else None),
         ))
 
+    def snapshot_batch_preset(self, preset_id: str, expected_revision: int) -> tuple[Krea2StylePreset, Krea2AssistedSettings]:
+        """Freeze a new batch's style with Flux Klein/Moody, independently of its source render."""
+        preset = self._preset(preset_id)
+        if preset.revision != expected_revision:
+            raise ValueError("Le preset a changé. Actualise les ressources avant de lancer le batch.")
+        # Historical presets only store style settings. Never let their source
+        # implicitly select the old 8+2 mode. Existing batch snapshots and explicit
+        # render variants keep their settings; only new preset selections use this.
+        base = preset.settings
+        settings = Krea2AssistedSettings(
+            model_name=base.model_name, loras=base.loras,
+            aspect_ratio=base.aspect_ratio, megapixels=base.megapixels,
+            workflow=KREA2_FLUX_KLEIN_WORKFLOW,
+            sampling=sampling_from_dict(None, default_preset_id="moody_beta"),
+        )
+        self._validate_render_settings(settings, allow_cached=True)
+        return preset, settings
+
+    def create_batch_project(self, *, config: CreationBatchConfig, name: str, intention: str,
+                             managed_key: str) -> Krea2AssistedProject:
+        """Create/recover a managed project using the batch's immutable style snapshot."""
+        with self._lock:
+            project = self.create_project(
+                name=name, intention=intention, model_id=config.model_id, managed_key=managed_key,
+                assistance_recipe_version=config.recipe_version, prompt_language=config.language,
+                local_inspiration_enabled=False,
+            )
+            if project.turns or project.attempts:
+                return project
+            return self.projects.save(replace(
+                project, style_preset=config.preset, preset_pending=True, art_direction=config.art_direction,
+                render_settings=config.settings, local_inspiration_enabled=config.local_inspiration,
+            ))
+
     def _preset(self, preset_id: str) -> Krea2StylePreset:
         if self.presets is None:
             raise ValueError("Le catalogue de presets n’est pas configuré.")
@@ -495,7 +531,7 @@ class Krea2AssistedService:
             ))
 
     def get(self, project_id: str) -> Krea2AssistedProject:
-        with timed_lock(self._lock, "krea2.service.get", sink=self.image_timings):
+        with image_operation(self.image_timings, "krea2.service.get", project_id=project_id):
             return self._refresh_detached(self.projects.get(project_id))
 
     @staticmethod
@@ -696,8 +732,12 @@ class Krea2AssistedService:
         return self.prompt_wildcards.preview_path(template_id)
 
     def list(self, limit: int = 30) -> list[Krea2AssistedProject]:
-        with timed_lock(self._lock, "krea2.service.list", sink=self.image_timings):
+        with image_operation(self.image_timings, "krea2.service.list"):
             return [self._refresh_detached(value) for value in self.projects.list(limit)]
+
+    def summaries(self, limit: int = 30) -> tuple["Krea2ProjectSummary", ...]:
+        with image_operation(self.image_timings, "krea2.service.summaries"):
+            return self.projects.summaries(limit)
 
     def stream_chat(
         self,
@@ -927,7 +967,7 @@ class Krea2AssistedService:
                 render_settings=settings, render_seed=chosen_seed,
             ))
             if enqueue:
-                self._enqueue_render(saved, attempt)
+                self._enqueue_render(saved.project_id, saved.name, attempt.attempt_id)
                 self._render_wake.set()
             return saved
 
@@ -977,66 +1017,63 @@ class Krea2AssistedService:
                 return project  # A repeated /start never duplicates a submission.
             self._validate_render_settings(attempt.settings, allow_cached=True)
             saved = self.projects.save(project.replace_attempt(attempt.queue(self._next_queue_order())))
-            self._enqueue_render(saved, saved.attempt(attempt_id))
+            self._enqueue_render(saved.project_id, saved.name, attempt_id)
             self._render_wake.set()
             return saved
 
     def _enqueue_render(
         self,
-        project: Krea2AssistedProject,
-        attempt: Krea2AssistedAttempt,
+        project_id: str,
+        project_name: str,
+        attempt_id: str,
     ) -> None:
         if self.work_coordinator is None:
             return
         self.work_coordinator.enqueue(
-            f"krea2:{project.project_id}:{attempt.attempt_id}",
+            f"krea2:{project_id}:{attempt_id}",
             ComputeResource.REMOTE_GPU,
             ProductionWorkload.IMAGE_RENDER,
-            f"KREA2 · {project.name}"[:200],
+            f"KREA2 · {project_name}"[:200],
         )
 
     @timed("krea2.queue.next_order", cpu=True)
     def _next_queue_order(self) -> int:
-        # A durable global order, independent of project edits and branch navigation.
-        latest = max((attempt.queue_order or 0 for project in self.projects.list(2**31 - 1)
-                      for attempt in project.attempts), default=0)
-        return max(time.time_ns(), latest + 1)
+        return self.projects.next_queue_order(time.time_ns())
 
     @timed("krea2.queue.pending", cpu=True)
-    def _pending_renders(self) -> list[tuple[Krea2AssistedProject, Krea2AssistedAttempt]]:
-        entries = [(project, attempt) for project in self.projects.list(2**31 - 1)
-                   for attempt in project.attempts if attempt.status in _RENDER_PENDING]
-        entries.sort(key=lambda pair: (
-            pair[1].status is Krea2AssistedAttemptStatus.QUEUED,
-            pair[1].queue_order or 0, pair[0].project_id, pair[1].index,
-        ))
-        return entries
+    def _pending_renders(self) -> tuple[Krea2RenderQueueEntry, ...]:
+        return self.projects.pending_renders()
 
     def render_queue(self) -> dict[str, object]:
         with timed_lock(self._lock, "krea2.service.render_queue", sink=self.image_timings):
             entries = self._pending_renders()
-            return {
-                "worker_running": bool(self._render_worker and self._render_worker.is_alive()),
-                "error": self._render_queue_error,
-                "items": [{
-                    "project_id": project.project_id, "project_name": project.name,
-                    "attempt_id": attempt.attempt_id, "index": attempt.index,
-                    "status": attempt.status.value, "position": index + 1,
-                    "error": attempt.error or (
-                        _AMBIGUOUS_SUBMISSION if attempt.status is Krea2AssistedAttemptStatus.SUBMITTING
-                        and (project.project_id, attempt.attempt_id) not in self._claimed else None
-                    ),
-                } for index, (project, attempt) in enumerate(entries)],
-            }
+            worker_running = bool(self._render_worker and self._render_worker.is_alive())
+            error = self._render_queue_error
+            claimed = frozenset(self._claimed)
+        return {
+            "worker_running": worker_running,
+            "error": error,
+            "items": [{
+                "project_id": entry.project_id, "project_name": entry.project_name,
+                "attempt_id": entry.attempt_id, "index": entry.index,
+                "status": entry.status.value, "position": index + 1,
+                "error": entry.error or (
+                    _AMBIGUOUS_SUBMISSION if entry.status is Krea2AssistedAttemptStatus.SUBMITTING
+                    and (entry.project_id, entry.attempt_id) not in claimed else None
+                ),
+            } for index, entry in enumerate(entries)],
+        }
 
     def start_render_worker(self) -> None:
         with timed_lock(self._lock, "krea2.service.start_render_worker", sink=self.image_timings):
-            for project, attempt in self._pending_renders():
-                self._enqueue_render(project, attempt)
-            if self._render_worker is None or not self._render_worker.is_alive():
-                self._render_stop.clear()
-                self._render_worker = Thread(target=self._render_loop, name="krea2-assisted-render-queue", daemon=True)
-                self._render_worker.start()
+            if self._render_worker is not None and self._render_worker.is_alive():
+                self._render_wake.set()
+                return
+            for entry in self._pending_renders():
+                self._enqueue_render(entry.project_id, entry.project_name, entry.attempt_id)
+            self._render_stop.clear()
+            self._render_worker = Thread(target=self._render_loop, name="krea2-assisted-render-queue", daemon=True)
+            self._render_worker.start()
             self._render_wake.set()
 
     def stop_render_worker(self) -> None:
@@ -1072,7 +1109,11 @@ class Krea2AssistedService:
                 entries = self._pending_renders()
                 if not entries:
                     return False
-                project, attempt = entries[0]
+                entry = entries[0]
+                project = self.projects.get(entry.project_id)
+                attempt = project.attempt(entry.attempt_id)
+                if attempt.status not in _RENDER_PENDING:
+                    return True  # A concurrent durable update already removed this entry.
                 if attempt.status is Krea2AssistedAttemptStatus.SUBMITTING:
                     # A process died between POST /prompt and recording its ID.
                     # Do not guess whether it was accepted, or submit a duplicate.
@@ -1099,6 +1140,15 @@ class Krea2AssistedService:
             attempt = result.attempt(attempt_id)
             annotate(status=attempt.status.value, execution_id=attempt.execution_id)
             return result
+
+    def render_progress_plan(self, attempt):
+        """Sampling node bindings come exclusively from the selected workflow manifest."""
+        workflow = self._workflow_for_attempt(attempt)
+        bindings = getattr(workflow, "sampling_inputs", {})
+        sampling = sampling_for(attempt.settings)
+        return tuple((bindings[f"{name}.steps"].node_id, getattr(sampling, name).steps, label)
+                     for name, label in (("first_pass", "Première passe KREA2"), ("second_pass", "Finition KREA2"))
+                     if f"{name}.steps" in bindings)
 
     def _execute_render_tracked(self, project_id: str, attempt_id: str) -> Krea2AssistedProject:
         if self.work_coordinator is not None:
@@ -1247,17 +1297,29 @@ class Krea2AssistedService:
             }:
                 return project
             assert attempt.execution_id is not None
-            try:
-                result = self.comfy.cancel_execution(attempt.execution_id)
-                action = getattr(getattr(result, "action", None), "value", getattr(result, "action", None))
-                if action == "already_finished":
-                    refreshed = self._refresh_detached_attempt(project, attempt)
-                    if refreshed != project:
-                        return refreshed
-                    return self.projects.save(project.replace_attempt(attempt.cancel_pending("Sortie terminée à réconcilier.")))
-                return self.projects.save(project.replace_attempt(attempt.cancel()))
-            except Exception as error:
-                return self.projects.save(project.replace_attempt(attempt.cancel_pending(_error(error))))
+        # Remote cancellation/reconciliation must not lock all project updates.
+        pending_error = None
+        try:
+            result = self.comfy.cancel_execution(attempt.execution_id)
+            action = getattr(getattr(result, "action", None), "value", getattr(result, "action", None))
+            if action == "already_finished":
+                refreshed = self._refresh_detached_attempt(project, attempt)
+                if refreshed.attempt(attempt_id).status not in {
+                    Krea2AssistedAttemptStatus.RUNNING, Krea2AssistedAttemptStatus.CANCEL_PENDING,
+                }:
+                    return refreshed
+                pending_error = "Sortie terminée à réconcilier."
+        except Exception as error:
+            pending_error = _error(error)
+        with timed_lock(self._lock, "krea2.service.cancel_commit", sink=self.image_timings):
+            current = self.projects.get(project_id)
+            latest = current.attempt(attempt_id)
+            if latest.execution_id != attempt.execution_id or latest.status not in {
+                Krea2AssistedAttemptStatus.RUNNING, Krea2AssistedAttemptStatus.CANCEL_PENDING,
+            }:
+                return current
+            updated = latest.cancel_pending(pending_error) if pending_error else latest.cancel()
+            return self.projects.save(current.replace_attempt(updated))
 
     def select_feedback(self, project_id: str, attempt_id: str | None) -> Krea2AssistedProject:
         with timed_lock(self._lock, "krea2.service.select_feedback", sink=self.image_timings):
@@ -1562,7 +1624,6 @@ class Krea2AssistedService:
                     Krea2AssistedAttemptStatus.RUNNING,
                     Krea2AssistedAttemptStatus.CANCEL_PENDING,
                 }
-                and (project.project_id, attempt.attempt_id) not in self._claimed
             ):
                 current = self._refresh_detached_attempt(current, current.attempt(attempt.attempt_id))
         return current
@@ -1572,39 +1633,53 @@ class Krea2AssistedService:
         project: Krea2AssistedProject,
         attempt: Krea2AssistedAttempt,
     ) -> Krea2AssistedProject:
-        if attempt.status not in {
-            Krea2AssistedAttemptStatus.RUNNING,
-            Krea2AssistedAttemptStatus.CANCEL_PENDING,
-        }:
+        # Share the existing drain guard: a poll cannot duplicate a worker's import.
+        # Acquisition is nonblocking, including when called during cancellation.
+        if not self._render_lock.acquire(blocking=False):
             return project
-        assert attempt.execution_id is not None
         try:
-            history = self.comfy.get_history(attempt.execution_id)
-            record = history.get(attempt.execution_id)
-            status = record.get("status") if isinstance(record, Mapping) else None
-            if not isinstance(status, Mapping):
-                return project
-            terminal = _history_terminal_kind(status)
-            if terminal is None:
-                return project
-            if terminal == "success":
-                prefix = f"image/krea2-assisted/{project.project_id}/{attempt.attempt_id}"
-                workflow_definition = self._workflow_for_attempt(attempt)
-                output_assets, output_warnings = self._import_outputs(
-                    workflow_definition, history, attempt.execution_id, prefix, project.project_id,
-                )
-                updated = attempt.succeed(
-                    output_assets["final"],
-                    pre_flux_asset_id=output_assets.get("pre_flux"),
-                    warnings=output_warnings,
-                )
-            elif terminal == "interrupted":
-                updated = attempt.cancel()
-            else:
-                updated = attempt.fail(f"ComfyUI execution failed: {status}")
-        except Exception:
-            return project
-        return self.projects.save(project.replace_attempt(updated))
+            with timed_lock(self._lock, "krea2.service.reconcile_read", sink=self.image_timings):
+                project = self.projects.get(project.project_id)
+                attempt = project.attempt(attempt.attempt_id)
+                if attempt.status not in {
+                    Krea2AssistedAttemptStatus.RUNNING, Krea2AssistedAttemptStatus.CANCEL_PENDING,
+                } or (project.project_id, attempt.attempt_id) in self._claimed:
+                    return project
+            assert attempt.execution_id is not None
+            try:
+                history = self.comfy.get_history(attempt.execution_id)
+                record = history.get(attempt.execution_id)
+                status = record.get("status") if isinstance(record, Mapping) else None
+                terminal = _history_terminal_kind(status) if isinstance(status, Mapping) else None
+                if terminal is None:
+                    return self.projects.get(project.project_id)
+                if terminal == "success":
+                    prefix = f"image/krea2-assisted/{project.project_id}/{attempt.attempt_id}"
+                    workflow_definition = self._workflow_for_attempt(attempt)
+                    output_assets, output_warnings = self._import_outputs(
+                        workflow_definition, history, attempt.execution_id, prefix, project.project_id,
+                    )
+            except Exception:
+                return self.projects.get(project.project_id)
+            with timed_lock(self._lock, "krea2.service.reconcile_commit", sink=self.image_timings):
+                current = self.projects.get(project.project_id)
+                latest = current.attempt(attempt.attempt_id)
+                if latest.execution_id != attempt.execution_id or latest.status not in {
+                    Krea2AssistedAttemptStatus.RUNNING, Krea2AssistedAttemptStatus.CANCEL_PENDING,
+                }:
+                    return current
+                if terminal == "success":
+                    updated = latest.succeed(output_assets["final"],
+                                             pre_flux_asset_id=output_assets.get("pre_flux"),
+                                             warnings=output_warnings)
+                elif terminal == "interrupted":
+                    updated = latest.cancel()
+                else:
+                    updated = latest.fail(f"ComfyUI execution failed: {status}")
+                return self.projects.save(current.replace_attempt(updated))
+        finally:
+            self._render_lock.release()
+            self._render_wake.set()
 
     @timed("catalog.validate")
     def _validate_render_settings(self, settings: Krea2BatchSettings, *, allow_cached: bool = False) -> None:

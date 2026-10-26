@@ -173,7 +173,15 @@
     });
   }
 
+  let initialization = null;
   async function initialize() {
+    if (initialization) return initialization;
+    initialization = initializeWorkshop();
+    try { return await initialization; }
+    finally { initialization = null; }
+  }
+
+  async function initializeWorkshop() {
     try {
       const [spec, cookbooks] = await Promise.all([
         core.request("/api/prompt-lab/spec"),
@@ -2085,7 +2093,10 @@
     elements.form.scrollIntoView({ behavior: "smooth", block: "start" });
     elements.intention.focus({ preventScroll: true });
   }
-  window.PanelForgeRef2V = Object.freeze({ prefillAnalysis, open: async id => {
+  window.PanelForgeRef2V = Object.freeze({ prefillAnalysis: async value => {
+    if (!state.spec || !state.cookbook) await initialize();
+    return prefillAnalysis(value);
+  }, open: async id => {
     window.PanelForgeLabNavigation?.switchView("ref2v-direct");
     await initialize();
     if (id) await openSession({id});
