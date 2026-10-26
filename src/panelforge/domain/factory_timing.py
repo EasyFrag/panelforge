@@ -50,6 +50,12 @@ def duration_profile(item, stage, lane, recipe=None):
 
 
 def observation(item, stage, profile, *, legacy=False):
+    metadata = observation_metadata(item, stage, legacy=legacy)
+    return dict(metadata, profile=profile) if metadata is not None else None
+
+
+def observation_metadata(item, stage, *, legacy=False):
+    """Eligibility and stable identity, without resolving a child render profile."""
     step = item.get("delivery", {}) if stage == "export" else item["steps"][stage]
     start, end = epoch(step.get("started_at")), epoch(step.get("finished_at"))
     if step.get("status") != "succeeded" or start is None or end is None or end <= start:
@@ -67,7 +73,7 @@ def observation(item, stage, profile, *, legacy=False):
         if stage == "plan" and item.get("runtime", {}).get("saved_plan"):
             return None
     return dict(id=timing.get("id") or fingerprint([item["id"], stage, step["started_at"], step["finished_at"]]),
-                profile=profile, seconds=end - start, finished_at=step["finished_at"],
+                seconds=end - start, finished_at=step["finished_at"],
                 quality="legacy" if legacy else "complete", item_id=item["id"],
                 child_id=item.get("runtime", {}).get("attempt_id" if stage == "video" else "dlss_job_id")
                 if stage in {"video", "dlss"} else None)

@@ -7,7 +7,7 @@ import time
 from panelforge.domain.video_factory import STAGES, fingerprint
 from panelforge.domain.factory_cycle import delivered, OPEN
 from panelforge.domain.video_factory_results import delivery_material
-from panelforge.domain.factory_timing import DurationModel, duration_profile, epoch, observation
+from panelforge.domain.factory_timing import DurationModel, duration_profile, epoch, observation_metadata
 from panelforge.domain.factory_forecast import forecast
 
 
@@ -50,8 +50,7 @@ class FactoryMonitoring:
                         step = item.get("delivery", {}) if stage == "export" else item["steps"][stage]
                         if step.get("status") != "succeeded":
                             continue
-                        record = observation(item, stage, self.profile(adapter, item, stage, historical=True),
-                                             legacy=not bool(step.get("timing")))
+                        record = self._new_observation(adapter, item, stage, legacy=not bool(step.get("timing")))
                         changed = self._add(record) or changed
                     except (KeyError, ValueError, FileNotFoundError, OSError, AttributeError):
                         # Missing child manifests are not replaced by a guessed recipe.
@@ -70,11 +69,22 @@ class FactoryMonitoring:
     def record(self, adapter, item, stage):
         with self._lock:
             try:
-                record = observation(item, stage, self.profile(adapter, item, stage, historical=True))
+                record = self._new_observation(adapter, item, stage)
                 if self._add(record):
                     self._persist()
             except Exception:
                 self.warning = "Une mesure de durée n’a pas pu être enregistrée."
+
+    def _new_observation(self, adapter, item, stage, *, legacy=False):
+        # Called under the monitoring lock. In particular, archived/trimmed
+        # observations in `seen` need no child project read or profile rebuild.
+        record = observation_metadata(item, stage, legacy=legacy)
+        if record is None or record["id"] in self.seen:
+            return None
+        # Do not mark missing/invalid profiles as seen: they can be recovered
+        # on a later startup once the explicit child manifest is available.
+        record["profile"] = self.profile(adapter, item, stage, historical=True)
+        return record
 
     def _add(self, record):
         if not record or record["id"] in self.seen:

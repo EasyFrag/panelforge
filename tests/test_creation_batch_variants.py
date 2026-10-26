@@ -13,6 +13,7 @@ from panelforge.application.machine_work import MachineWorkCoordinator
 from panelforge.application.work_context import llm_owner_prefix
 from panelforge.application.prompt_lab import CompletionRequest, CompletionStreamEvent, StreamEventKind, StreamPhase
 from panelforge.domain.krea2_art_direction import Krea2ArtDirection
+from panelforge.domain.creation_batch import CreationBatchRender
 from panelforge.domain.krea2_sampling import sampling_from_dict
 from panelforge.domain.production import ComputeResource, ProductionWorkload
 from panelforge.infrastructure.creation_batch_progress import CreationBatchProgress
@@ -24,9 +25,11 @@ from tests.test_creation_batch import AssistedDouble, request_values
 class FactoryDouble:
     def __init__(self):
         self.items = {}
+        self.calls = []
 
     def receive(self, entries, *, compact=False):
         key = entries[0]["source"]["id"]
+        self.calls.append(key)
         self.items.setdefault(key, "factory-" + str(len(self.items) + 1))
         return {"ids": [self.items[key]]}
 
@@ -178,6 +181,103 @@ class CreationBatchVariantTests(unittest.TestCase):
         self.assertEqual(len(self.factory.items), 1)
         self.assertEqual(receipt.items[0].factory_item_id, "factory-1")
         self.assertEqual(self.store.get(batch.batch_id).items[0].factory_item_id, "factory-1")
+
+    def factory_family(self):
+        batch = self.finished()
+        original = batch.items[0]
+        variant = CreationBatchRender(uuid4().hex, "8 + 4", batch.config, "Saved prompt", "a" * 64,
+                                      status="succeeded", output_asset_id="asset-regen")
+        original = replace(original, renders=(variant,))
+        child = replace(original, item_id="1.1", parent_id="1", name="Art variant", output_asset_id="asset-art",
+                        renders=(replace(variant, render_id=uuid4().hex, output_asset_id="asset-art-regen"),))
+        preset = replace(original, item_id="1.2", parent_id="1", name="Preset variant", output_asset_id="asset-preset", renders=())
+        pending = replace(original, item_id="2", output_asset_id=None, image_status="queued", renders=())
+        failed = replace(pending, item_id="3", image_status="failed")
+        return self.service._save(replace(batch, items=(original, child, preset, pending, failed), revision=batch.revision + 1))
+
+    def test_bulk_sends_originals_all_variant_types_and_skips_sent_or_unavailable(self):
+        batch = self.factory_family()
+        self.service.send_to_factory(batch.batch_id, "1", "initial")
+        updated, report = self.service.send_all_to_factory(batch.batch_id)
+        self.assertEqual((report["sent"], report["already_sent"], report["failed"]), (4, 1, 0))
+        expected = {f"{batch.batch_id}/{item.item_id}/{render_id}" for item in batch.items[:3]
+                    for render_id in ["initial", *(r.render_id for r in item.renders)]}
+        self.assertEqual(set(self.factory.items), expected)
+        self.assertEqual(len(self.factory.calls), 5)
+        self.assertTrue(all(item.factory_item_id and all(r.factory_item_id for r in item.renders) for item in updated.items[:3]))
+        self.assertFalse(updated.items[3].factory_item_id)
+        self.assertFalse(updated.items[4].factory_item_id)
+        restarted = CreationBatchService(self.store, self.assisted, factory=self.factory)
+        _, again = restarted.send_all_to_factory(batch.batch_id)
+        self.assertEqual((again["sent"], again["already_sent"]), (0, 5))
+        self.assertEqual(len(self.factory.calls), 5)
+
+    def test_bulk_and_individual_concurrent_requests_do_not_resend_images(self):
+        batch = self.factory_family()
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = [pool.submit(self.service.send_all_to_factory, batch.batch_id) for _ in range(3)]
+            futures.append(pool.submit(self.service.send_to_factory, batch.batch_id, "1", "initial"))
+            for future in futures:
+                future.result()
+        self.assertEqual(len(self.factory.calls), 5)
+        self.assertEqual(len(set(self.factory.calls)), 5)
+
+    def test_bulk_continues_after_one_error_and_retry_only_sends_the_remaining_image(self):
+        batch = self.factory_family()
+        key = f"{batch.batch_id}/1/{batch.items[0].renders[0].render_id}"
+        receive = self.factory.receive
+        def fail_one(entries, **kwargs):
+            if entries[0]["source"]["id"] == key:
+                raise ValueError("Fixture rejected variant")
+            return receive(entries, **kwargs)
+        self.factory.receive = fail_one
+        _, report = self.service.send_all_to_factory(batch.batch_id)
+        self.assertEqual((report["sent"], report["failed"]), (4, 1))
+        self.assertEqual(report["errors"][0]["render_id"], batch.items[0].renders[0].render_id)
+        self.factory.receive = receive
+        _, retry = self.service.send_all_to_factory(batch.batch_id)
+        self.assertEqual((retry["sent"], retry["already_sent"], retry["failed"]), (1, 4, 0))
+        self.assertEqual(len(self.factory.calls), 5)
+
+    def test_bulk_lost_receipt_recovers_with_real_factory_deduplication_after_restart(self):
+        from panelforge.application.video_factory import VideoFactoryService
+        from tests.test_video_factory import MemoryStore, FakeWorkflows
+        batch = self.factory_family()
+        factory_store, adapter = MemoryStore(), FakeWorkflows()
+        self.service.factory = VideoFactoryService(store=factory_store, adapter=adapter)
+        save, lost = self.store.save, False
+        def lose_first_receipt(value):
+            nonlocal lost
+            if value.items[0].factory_item_id and not lost:
+                lost = True
+                raise OSError("Lost batch receipt")
+            return save(value)
+        self.store.save = lose_first_receipt
+        _, report = self.service.send_all_to_factory(batch.batch_id)
+        self.assertEqual((report["sent"], report["failed"]), (4, 1))
+        self.assertEqual(len(factory_store.load()["items"]), 5)
+        self.store.save = save
+        factory = VideoFactoryService(store=factory_store, adapter=adapter)
+        restarted = CreationBatchService(self.store, self.assisted, factory=factory)
+        updated, report = restarted.send_all_to_factory(batch.batch_id)
+        self.assertEqual((report["sent"], report["already_sent"], report["failed"]), (1, 4, 0))
+        self.assertTrue(updated.items[0].factory_item_id)
+        self.assertEqual(len(factory_store.load()["items"]), 5)
+        self.assertEqual(adapter.calls, [])
+
+    def test_bulk_snapshot_leaves_newly_completed_images_for_next_click(self):
+        batch = self.factory_family()
+        receive = self.factory.receive
+        def complete_during_delivery(entries, **kwargs):
+            self.service._update(batch.batch_id, 3, image_status="succeeded", output_asset_id="asset-new")
+            return receive(entries, **kwargs)
+        self.factory.receive = complete_during_delivery
+        updated, report = self.service.send_all_to_factory(batch.batch_id)
+        self.assertEqual(report["sent"], 5)
+        self.assertFalse(updated.items[3].factory_item_id)
+        _, report = self.service.send_all_to_factory(batch.batch_id)
+        self.assertEqual((report["sent"], report["already_sent"]), (1, 5))
+        self.assertEqual(len(self.factory.calls), 6)
 
     def test_legacy_schema_without_variants_still_loads(self):
         batch = self.finished()

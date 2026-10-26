@@ -140,12 +140,14 @@ class LocalKrea2WildcardLibrary:
             self._error = "Dossier wildcard absent. Configurez --krea2-wildcards-root."
             return
         try:
-            documents: list[tuple[Path, dict[str, object]]] = []
+            documents: list[tuple[Path, dict[str, object], dict[str, int]]] = []
             for path in sorted(self.source_root.glob("*.yaml")):
-                value = yaml.safe_load(path.read_text(encoding="utf-8"))
+                content = path.read_text(encoding="utf-8")
+                value = yaml.safe_load(content)
                 if not isinstance(value, dict):
                     raise ValueError(f"document YAML invalide : {path.name}")
-                documents.append((path, value))
+                source_lines = {} if path.name.startswith("shared-") else _source_lines(content)
+                documents.append((path, value, source_lines))
                 for root, node in value.items():
                     self._collect_definitions(str(root), node, path.name)
             for tag, values in self._definitions.items():
@@ -165,7 +167,7 @@ class LocalKrea2WildcardLibrary:
                         if "/template/" in reference:
                             routers.setdefault(reference, []).append(router)
             templates: list[_Template] = []
-            for path, value in documents:
+            for path, value, source_lines in documents:
                 if path.name.startswith("shared-"):
                     continue
                 for root, node in value.items():
@@ -191,7 +193,7 @@ class LocalKrea2WildcardLibrary:
                             template_id=template_id,
                             short_id=str(short_id),
                             source_file=path.name,
-                            source_line=_source_line(path, str(short_id)),
+                            source_line=source_lines.get(str(short_id), 1),
                             routers=memberships,
                             descriptor=descriptor,
                             values=tuple(raw_values),
@@ -504,12 +506,23 @@ def _expand_inline(text: str, rng: random.Random) -> str:
     raise ValueError("trop de choix inline imbriqués")
 
 
-def _source_line(path: Path, template_id: str) -> int:
-    pattern = re.compile(rf"^\s+{re.escape(template_id)}:\s*$")
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if pattern.match(line):
-            return number
-    return 1
+def _source_lines(content: str) -> dict[str, int]:
+    """Index the legacy literal-key matches once, retaining the first line.
+
+    The old matcher required leading whitespace and a bare trailing colon.
+    Index each possible end of that whitespace prefix to also preserve keys
+    containing leading spaces, without rescanning the file for every template.
+    """
+    result: dict[str, int] = {}
+    for number, line in enumerate(content.splitlines(), 1):
+        key_line = line.rstrip()
+        if not key_line.endswith(":"):
+            continue
+        for offset, character in enumerate(key_line):
+            if not character.isspace():
+                break
+            result.setdefault(key_line[offset + 1:-1], number)
+    return result
 
 
 def _word_set(value: str) -> set[str]:

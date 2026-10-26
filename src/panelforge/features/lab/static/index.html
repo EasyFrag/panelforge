@@ -54,8 +54,8 @@
   <template data-lab-script="krea2-retouch.js"><script src="/static/krea2-retouch.js?v=20260908.1" defer></script></template>
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-lab.js?v=20261026.batchpresets1" defer></script>
-  <link rel="stylesheet" href="/static/creation-batch.css?v=20261026.2">
-  <template data-lab-script="creation-batch.js"><script src="/static/creation-batch.js?v=20261026.2" defer></script></template>
+  <link rel="stylesheet" href="/static/creation-batch.css?v=20261026.3">
+  <template data-lab-script="creation-batch.js"><script src="/static/creation-batch.js?v=20261026.3" defer></script></template>
   <template data-lab-script="image-crop.js"><script src="/static/image-crop.js?v=20260914.1" defer></script></template>
   <template data-lab-script="krea2-edit-lab.js"><script src="/static/krea2-edit-lab.js?v=20260914.2" defer></script></template>
   <link rel="stylesheet" href="/static/qwen-edit-v2.css?v=20260928.minimax1">
@@ -1016,7 +1016,12 @@
     </aside>
     <div class="content cb-content">
       <section class="results">
-        <div class="result-head"><div><small>PRODUCTION D’IMAGES</small><h2 id="cb-title">Suivi du batch</h2></div><span id="cb-count" class="run-status">Prêt</span></div>
+        <div class="result-head"><div><small>PRODUCTION D’IMAGES</small><h2 id="cb-title">Suivi du batch</h2></div>
+          <div class="cb-global-actions"><span id="cb-count" class="run-status">Prêt</span>
+            <button id="cb-factory-all" class="cb-factory-all" type="button" disabled>Envoyer tout à l’usine</button>
+          </div>
+        </div>
+        <p id="cb-factory-state" class="muted" role="status" hidden></p>
         <p id="cb-empty" class="muted">Chargez un CSV, choisissez un preset puis lancez le batch.</p>
         <p id="cb-worker-error" class="error" role="status" hidden></p>
         <div class="cb-table-wrap" id="cb-table-wrap" hidden>

@@ -8,6 +8,13 @@
 #cb-fields:disabled .cb-file-button { opacity: .5; cursor: default; }
 #cb-csv-help, #cb-preset-note { display: block; font-size: .59rem; line-height: 1.6; margin-top: .3rem; overflow-wrap: anywhere; }
 #cb-art-control { margin-top: .8rem; }
+.cb-global-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .5rem; }
+.cb-factory-all { border: 1px solid #694590; border-radius: 7px; background: #694590; color: white; padding: .5rem .7rem; font-size: .67rem; font-weight: 700; cursor: pointer; }
+.cb-factory-all:disabled { opacity: .55; cursor: default; }
+.cb-factory-all[data-sent="true"] { opacity: 1; }
+.cb-factory-all[aria-busy="true"] { cursor: wait; }
+#cb-factory-state { font-size: .68rem; white-space: pre-line; overflow-wrap: anywhere; }
+#cb-factory-state[data-error="true"] { color: var(--red); }
 .cb-table-wrap { overflow-x: auto; }
 .cb-table { width: 100%; border-collapse: collapse; font-size: .72rem; text-align: left; }
 .cb-table th { color: var(--muted); font-size: .63rem; white-space: nowrap; }

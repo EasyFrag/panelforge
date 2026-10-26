@@ -29,7 +29,8 @@ class CreationBatchBrowserTests(unittest.TestCase):
           const nativeClear=window.clearTimeout.bind(window);
           window.clearTimeout=id=>{timers.delete(id);nativeClear(id);};
           let visibility='visible',batch=null,failReceipt=true,failVariant=true;
-          const variantReceipts=new Map();let liveMonitor={};
+          const variantReceipts=new Map();let liveMonitor={},failBulk=false;
+          let bulkGate=null,releaseBulk=null;
           const imageUrl='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="360" height="640"><rect width="360" height="640" fill="teal"/></svg>');
           Object.defineProperty(document,'visibilityState',{get:()=>visibility,configurable:true});
           const gemma='local::unsloth/gemma-4-31b-it-qat-GGUF';
@@ -53,6 +54,22 @@ class CreationBatchBrowserTests(unittest.TestCase):
                   ...item,item_id:String(i+1),prompt_status:'queued',image_status:'waiting',error:null}))};
               if(failReceipt){failReceipt=false;throw new TypeError('Lost response fixture');}
               data={batch};
+            }else if(url.endsWith('/factory')&&!url.includes('/items/')){
+              if(bulkGate)await bulkGate;
+              const report={sent:0,already_sent:0,failed:0,errors:[]};
+              for(const item of batch.items){
+                const renders=item.renders||[{...item,render_id:'initial',status:item.image_status}];
+                for(const render of renders){
+                  if(render.status!=='succeeded'||!render.output_asset_id)continue;
+                  if(render.factory_item_id){report.already_sent++;continue;}
+                  render.factory_item_id='factory-'+item.item_id+'-'+render.render_id;
+                  if(render.render_id==='initial')item.factory_item_id=render.factory_item_id;
+                  report.sent++;
+                }
+              }
+              batch.revision++;
+              if(failBulk){failBulk=false;throw new TypeError('Lost bulk response');}
+              data={batch,factory_delivery:report};
             }else if(url.endsWith('/factory')){
               batch.items[0].factory_item_id='factory-one';batch.revision++;
               if(batch.items[0].renders)batch.items[0].renders[0].factory_item_id='factory-one';
@@ -89,6 +106,9 @@ class CreationBatchBrowserTests(unittest.TestCase):
             root.hidden=false;await settle();
             check(el('recipe').value==='6.0.0'&&!el('inspiration').checked,'batch defaults');
             check(el('model').value===gemma&&el('local').checked,'local Gemma default');
+            check(el('factory-all').disabled,'bulk send disabled before images');
+            check(el('factory-all').parentElement.contains(el('count')),'bulk button beside global count');
+            check(getComputedStyle(el('factory-all')).backgroundColor==='rgb(105, 69, 144)','factory purple');
             check(!root.querySelector('aside details'),'form always expanded');
             const nav=[...root.querySelectorAll('[data-image-lab-mode]')];
             check(nav[0].dataset.imageLabMode==='krea2-assisted-lab'&&nav[1].dataset.imageLabMode==='creation-batch','adjacent navigation');
@@ -114,6 +134,7 @@ class CreationBatchBrowserTests(unittest.TestCase):
             batch.counts={total:2,finished:1,succeeded:1,failed:0};
             el('refresh').click();await settle();
             const preview=el('rows').querySelector('.cb-preview');check(preview,'result preview');
+            check(!el('factory-all').disabled&&el('factory-all').textContent.includes('(1)'),'one available image');
             preview.dispatchEvent(new MouseEvent('mouseenter'));await settle();check(!document.querySelector('.cb-hover').hidden,'hover enlargement');
             check(document.querySelector('.cb-hover').getBoundingClientRect().height>420,'larger hover uses available space');
             preview.click();await settle();check(el('image-dialog').open,'full image opens on click');
@@ -123,6 +144,7 @@ class CreationBatchBrowserTests(unittest.TestCase):
             check(rect.width<innerWidth*.8,'portrait dialog does not fill width');el('image-close').click();
             const factory=el('rows').querySelector('.cb-factory');check(factory.textContent==='+','compact factory plus');
             factory.click();await settle();check(factory.textContent==='✓'&&factory.disabled,'confirmed receipt');
+            check(el('factory-all').disabled,'individual receipt removes image from bulk send');
             el('refresh').click();await settle();check(factory.textContent==='✓','receipt survives refresh');
             check(el('rows').querySelector('.cb-stage').textContent.includes('Terminé'),'completed prompt label');
             const regen=[...el('rows').querySelectorAll('button')].find(b=>b.textContent==='8 + 4');
@@ -138,6 +160,31 @@ class CreationBatchBrowserTests(unittest.TestCase):
             const presetButton=[...el('rows').children[0].querySelectorAll('button')].find(b=>b.textContent==='Preset');
             presetButton.click();el('variant-dialog').querySelector('button').click();await settle();
             check([...el('rows').children].map(r=>r.dataset.itemId).join(',')==='1,1.1,1.2,2','creative preset child');
+            const art=batch.items.find(i=>i.item_id==='1.1');
+            art.image_status='succeeded';art.output_asset_id='asset-art';
+            art.renders=[{render_id:'initial',label:'Original',status:'succeeded',output_asset_id:'asset-art',
+              thumbnail_url:imageUrl,hover_url:imageUrl,image_url:imageUrl}];
+            batch.revision++;el('refresh').click();await settle();
+            check(el('factory-all').textContent.includes('(2)'),'regeneration and DA included');
+            bulkGate=new Promise(resolve=>{releaseBulk=resolve;});
+            const bulkCalls=()=>calls.filter(([url,o])=>url.endsWith('/factory')&&!url.includes('/items/')&&o.method==='POST');
+            el('factory-all').click();el('factory-all').click();await settle();
+            check(el('factory-all').disabled&&el('factory-all').getAttribute('aria-busy')==='true','bulk busy state');
+            check(bulkCalls().length===1,'double click sends only one bulk request');
+            root.hidden=true;await settle();releaseBulk();bulkGate=null;await settle();
+            root.hidden=false;await settle();
+            check(el('factory-all').disabled&&el('factory-all').textContent.includes('Images envoyées'),'bulk receipts shown');
+            check([...el('rows').querySelectorAll('.cb-factory')].every(b=>b.textContent==='✓'),'all available cards checked');
+            check(el('factory-state').textContent.includes('2 image(s) envoyée(s)'),'bulk summary');
+            const second=batch.items.find(i=>i.item_id==='2');
+            Object.assign(second,{image_status:'succeeded',output_asset_id:'asset-second',thumbnail_url:imageUrl,image_url:imageUrl});
+            batch.revision++;el('refresh').click();await settle();
+            check(!el('factory-all').disabled&&el('factory-all').textContent.includes('(1)'),'new image enables another send');
+            failBulk=true;el('factory-all').click();await settle();
+            check(el('factory-state').textContent.includes('Lost bulk response'),'uncertain bulk response shown');
+            check(el('factory-all').disabled,'receipt refreshed after lost response');
+            check(bulkCalls().length===2,'no automatic duplicate send after uncertainty');
+            el('refresh').click();await settle();check(el('factory-all').disabled,'bulk receipts survive refresh');
             liveMonitor={'2':{prompt:{status:'queued',position:2,progress:0},images:{initial:{status:'waiting'}}},
               '1':{prompt:{status:'succeeded',progress:1},images:{initial:{status:'running',progress:.5,message:'Sampling'}}}};
             const tick=[...timers.values()][0];if(tick){timers.clear();await tick();await settle();}

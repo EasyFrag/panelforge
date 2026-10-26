@@ -1,5 +1,73 @@
 # CONTINUITY
 
+## Skill 2026-10-26 — rédaction des intentions lips
+
+### Goal
+- Terminé : fournir un prompt/skill réutilisable pour rédiger les intentions de lèvres joaillières, après validation utilisateur du test sans poils/duvet.
+
+### Current state
+- L’utilisateur indique que l’intention test a bien fonctionné : macro beauté, pavage intégral de micro-pierres, or jaune, peau blanche glabre, absence de poils/duvet entre le nez et la lèvre supérieure et autour de la bouche, aucune moustache/barbe, grain de peau naturel conservé, dégradé améthyste violette/citrine ambrée à large transition. Ce retour valide la correction détaillée ; il ne constitue pas une validation de toutes les nouvelles palettes possibles.
+- Skill `lips-intentions` créé dans `C:/Users/samue/.codex/skills/lips-intentions/SKILL.md`, avec métadonnées `agents/openai.yaml`. Copie de préparation et empreintes dans `.agent/diagnostics/lips-intentions-skill-20261026/`. Aucun skill préexistant écrasé ; emplacement global choisi selon `skill-creator`, lu et appliqué pour cette demande.
+- Skill autonome en français, utilisable aussi comme consigne copiée dans un autre assistant. Couvre intention test, correction ciblée et série CSV. Reprend les quotas V2 exacts, y compris les croisements simples/détaillés : 25 simples/75 détaillées, 75 peau blanche/25 claire naturelle, 75 or jaune/15 blanc/5 argent/5 argent rhodié noir, 60 avec précieuses/40 semi-précieuses seules, 30 monovariété/70 mélanges. Les simples utilisent exclusivement des précieuses, avec 23 or jaune et 2 or blanc. Trente dégradés parmi les détaillées, autres familles réparties comme V2 ; quotas réglables selon les demandes ultérieures.
+- Base détaillée reprend la formulation glabre validée. Le gabarit simple reste sur cinq lignes et porte la consigne glabre dans sa ligne de peau. Toutes les nouvelles intentions de ce profil incluent cette correction. Symétrie gauche-droite limitée aux vagues de saphirs bleu nuit/bleu clair ; pas de symétrie générale imposée. Couverture des lèvres, petites pierres, grain naturel, faible relief, sourire marqué/lèvres fermées et ornements limités aux lèvres sont conservés.
+- Contrat CSV inclus : UTF-8 BOM, `nom;intention`, vrais retours à la ligne cités, noms versionnés, limites d’import, contrôle des quotas/croisements, doublons et contradictions. Le skill rédige les intentions ; il ne lance pas le moteur ni un batch et ne change pas les réglages de rendu.
+- Validation statique `quick_validate.py` réussie sur préparation puis copie finale ; champs UI et égalité des copies vérifiés. Aucun test applicatif, appel LLM/image, nouveau CSV de production, modification de code PanelForge, synchronisation du Lab, envoi Usine, redémarrage, commit ou push par cette tâche.
+
+### Next steps
+- Fournir le lien du SKILL.md et un exemple d’invocation pour 100 intentions ou une intention test. Les demandes utilisateur priment sur les quotas par défaut.
+- Lors d’une prochaine série, incorporer la correction glabre dans les nouveaux fichiers et rapporter les effectifs réels. Les CSV V1/V2 existants sont conservés tels quels dans ce tour.
+
+## Alignement 2026-10-26 — pause thermique globale simple
+
+### Goal
+- Cadrer une première version thermique dans le popup existant des températures/traitements, avant implémentation. L’utilisateur demande un avis sur ce scope initial ; l’extinction automatique reste différée.
+
+### Current state
+- Périmètre demandé : GPU uniquement (RTX 6000 serveur, 5090 FE locale), uniquement les traitements PanelForge. Au-dessus de 86 °C sur l’une des machines, mettre les traitements en pause sur les deux, sans annulation pour cette première version.
+- Inspection en lecture seule : `application/machine_work.py` coordonne les files `local_gpu` et `remote_gpu`, avec surveillance thermique côté backend et pause par file. Le popup `features/lab/static/work-queue.js` contient déjà les paramètres globaux montrés par l’utilisateur ; les cooldowns locaux et distants actuels ne constituent pas un verrou thermique global.
+- Limite explicitée : sans interruption du moteur, un calcul déjà admis peut terminer ; la pause bloque les départs suivants. Proposition UX : bloc commun « Pause thermique globale » avec activation et seuil à 86 °C, motif visible et reprise manuelle après refroidissement. Conserver les cooldowns existants distincts.
+- Aucun code applicatif, réglage runtime ou service modifié ; aucun test, appel LLM ni génération lancé. Le terminal sandbox échoue au démarrage ; les lectures ont abouti via exécution autorisée hors sandbox.
+
+### Next steps
+- Finaliser le cadrage avec l’utilisateur, puis raccorder le seuil commun à l’admission des deux files et au popup existant. Préciser le comportement de reprise et de persistance sans présenter une pause des départs comme un arrêt immédiat des GPU.
+- Lors de l’implémentation, couvrir le dépassement local/distant, le blocage des deux files, la fin normale des tâches en cours et la reprise explicite. Exécution des tests laissée à l’utilisateur selon AGENTS.md.
+
+## Implémentation 2026-10-26 — envoyer toutes les images du batch à l’Usine
+
+### Goal
+- Terminé : ajouter un bouton violet « Envoyer tout à l’usine » à côté de la progression globale, couvrant les images originales, régénérations 8 + 4, sous-lignes DA/preset et leurs régénérations, sans renvoyer les images déjà reçues.
+
+### Current state
+- Bouton `cb-factory-all` dans l’en-tête de production, à côté de `cb-count`, violet `#694590` comme les boutons Usine individuels. Compte les images réussies avec un asset et sans reçu. Désactivé avant disponibilité, pendant l’envoi et lorsque toutes les images disponibles ont un reçu ; affiche alors « ✓ Images envoyées ». Les nouvelles images terminées le réactivent. Les reçus individuels continuent à afficher leurs coches.
+- `POST /api/image-lab/creation-batch/batches/{batch_id}/factory` orchestre l’envoi côté serveur. `send_all_to_factory` prend une liste fixe des images disponibles au début de l’appel, parcourt toutes les lignes et tous leurs rendus, ignore les sorties absentes/échouées/en attente et les reçus déjà présents. Les images qui terminent pendant cet envoi attendent un prochain clic ; aucun envoi automatique des sorties futures.
+- Envoi individuel et groupé partagent `_send_factory_image` et le même verrou d’envoi. Le reçu est relu sous verrou avant chaque appel à l’Usine, puis sauvegardé durablement par image. Deux requêtes groupées ou une requête individuelle simultanée ne renvoient donc pas une image ayant déjà son reçu. La déduplication existante de l’Usine par source/configuration couvre une réception réussie suivie d’une perte de sauvegarde du reçu batch ; les clés restent `batch_id/item_id/render_id`.
+- Un échec individuel n’empêche pas les suivants. La réponse fournit le batch actualisé, le suivi et un bilan `factory_delivery` (envoyées, déjà envoyées, échecs avec identifiants/messages bornés). Le bilan apparaît sous l’en-tête. Le bouton reprend les images sans reçu au clic suivant. Si la réponse HTTP est perdue, l’interface relit le batch avant de proposer la reprise, sans renvoi automatique. La requête POST n’est pas annulée au changement d’atelier ; les lectures de suivi restent bornées à l’atelier visible, y compris pendant l’envoi d’un batch déjà terminé.
+- Sept tests ajoutés : cinq cas service (toutes les familles et exclusions, concurrence individuel/groupé, échec isolé/reprise, perte de reçu/reprise avec la vraie déduplication de `VideoFactoryService` sur stockage mémoire, nouveaux résultats réservés au prochain clic) et deux contrats HTTP. Parcours navigateur simulé étendu : emplacement/couleur, compte disponible, doubles clics, changement d’atelier pendant envoi, coches, nouvelles images et réponse perdue. Aucun test exécuté selon AGENTS.md.
+- Contrôles statiques réussis : syntaxe de cinq fichiers Python sans import/exécution, trois scripts/fragments JavaScript analysés par V8 sans invocation, identifiants HTML du bouton/bilan/compteur uniques, espaces des ajouts. Huit fichiers sauvegardés et synchronisés vers `D:/Code/panelforge-krea2-flux`, avec précontrôle des empreintes puis vérification finale. CSS/JS batch versionnés en `20261026.3`. Diagnostics et sauvegardes dans `.agent/diagnostics/creation-batch-send-all-20261026/`.
+- Aucun envoi effectif à l’Usine, appel LLM, génération image/vidéo, mutation runtime, test fonctionnel, redémarrage, commit ou push effectué par cette tâche. Les autres modifications présentes dans les deux checkouts ont été conservées, ainsi que l’entrée de continuité ajoutée en parallèle pour le catalogue/statistiques.
+
+### Next steps
+- L’utilisateur redémarre le Lab puis recharge la page pour activer ensemble le backend et l’instantané HTML/CSS/JS. Le bouton est ensuite utilisable sur le batch courant, y compris pendant la génération des images restantes.
+- Tests à lancer par l’utilisateur : `.\.venv\Scripts\python.exe -m unittest tests.test_creation_batch_variants tests.test_creation_batch_web tests.test_creation_batch_browser`. Vérification réelle d’envoi laissée à son prochain clic ; aucun succès fonctionnel en production revendiqué avant cette utilisation.
+
+## Implémentation 2026-10-26 — sauvegarde GitHub puis correctifs catalogue et statistiques
+
+### Goal
+- Terminé : publier la version AVANT correctif demandée, puis supprimer les relectures répétées du catalogue V5 et des statistiques Usine. Le diagnostic du lot 5 est suivi de ces deux optimisations ciblées ; aucune modification de la reprise des files ou du lancement durable du lot 3.
+
+### Current state
+- Sauvegarde GitHub publiée et vérifiée : commit `225a736677d56b69b009403645236e47a6b8edb8`, branche `snapshots/pre-catalogue-stats-2026-10-26`, dépôt `https://github.com/EasyFrag/panelforge`. Parent `fc38fb6a6720be4f583743436ad66df9531f60e7`. La sauvegarde inclut les évolutions récentes : lots 1/2/4, Création batch et ses variantes, défaut Flux Klein/Moody et CSV. Elle précède les correctifs décrits ci-dessous, qui restent locaux.
+- Publication via index isolé, commit-tree et nouvelle branche sans force. HEAD/master et l’index ordinaire de travail sont conservés et vérifiés ; master distant n’a pas été déplacé. Soixante-neuf fichiers ajoutés/modifiés par rapport au parent ; quarante-cinq fichiers Python modifiés compilés sans exécution. Le guide Histoire V2 plus récent du parent est conservé ; notes privées, lanceur contenant des secrets, médias, données runtime et prototypes documentaires locaux non suivis exclus. Aucun motif usuel de clé privée ou jeton détecté dans les blobs modifiés. Source relue et empreintes contrôlées avant publication ; SHA distant confirmé après push.
+- Catalogue : chaque YAML est lu une fois, le même contenu sert au parseur et à l’indexation des lignes. L’index est construit une fois par document contenant des templates, sans index inutile des fichiers shared-. Recherche en dictionnaire pour chaque template ; plus de relecture ni de parcours complet du document par template. Première ligne correspondante et repli à 1 conservés, y compris clés littérales avec espaces/caractères spéciaux. Aucune modification des templates, règles de sélection/compilation, graines, données sur disque ou dépendance ajoutée ; pas de cache persistant à invalider.
+- Statistiques : extraction de `observation_metadata` dans le domaine pour vérifier l’éligibilité et l’identité avant résolution du profil. `FactoryMonitoring` utilise ce contrat au bootstrap et lors de l’enregistrement : une observation connue dans `seen`, même retirée des 4 000 échantillons conservés, ou non exploitable ne relit plus son projet enfant ni ne reconstruit son profil. Une archive inconnue mais valide reste apprise. Un profil enfant manquant n’est pas marqué connu et pourra être repris ultérieurement. IDs modernes/historiques, qualité, durée, champs persistés et règles recovered/reused/legacy conservés ; aucune statistique supprimée.
+- Neuf tests ajoutés dans `tests/test_catalogue_startup.py` et `tests/test_factory_monitoring_startup.py` : 80 templates/une lecture par YAML, lignes d’audit et compilation déterministe, réouverture/validation, archives connues/inconnues, identifiants anciens, observations élaguées, échantillons non exploitables, enfant manquant puis récupéré, doublon live/nouvel essai et export connu. Tests NON exécutés selon AGENTS.md. Syntaxe des cinq fichiers et des versions destinées au Lab vérifiée ; comparaison AST des règles d’éligibilité et des champs durables identique avant/après extraction, hors résolution différée du profil ; espaces du diff vérifiés.
+- Trois fichiers applicatifs et deux modules de tests synchronisés et vérifiés dans `D:/Code/panelforge-krea2-flux`, sans redémarrage. Sauvegardes des deux copies, diff limité, plan et empreintes dans `.agent/diagnostics/catalogue-stats-20261026/` : `snapshot.json`, `snapshot-prepared.json`, `review.diff`, `static-checks.json`, `sync-final.json`. Les autres changements locaux sont conservés. Aucun test, benchmark du workspace, appel LLM, génération, modification de données runtime ou redémarrage de service ; aucun gain temporel après correctif encore mesuré.
+
+### Next steps
+- L’utilisateur peut lancer `python -m unittest tests.test_catalogue_startup tests.test_factory_monitoring_startup tests.test_krea2_assisted_v5 tests.test_factory_monitoring`, puis `tests.test_video_factory_timing_retry` si souhaité. Aucun résultat fonctionnel revendiqué avant cette exécution.
+- Le code Python corrigé sera chargé au prochain redémarrage du Lab décidé par l’utilisateur, à un moment compatible avec ses productions. Comparer ensuite les traces normales de démarrage ; la phase langage regroupe toujours catalogue et clients HTTP et la phase Usine reste globale. L’empreinte Git et la reconstruction KREA2 restent des pistes séparées, sans changement dans ce correctif.
+
+
 ## Implémentation 2026-10-26 — Flux Klein/Moody par défaut et intentions lips V2
 
 ### Goal

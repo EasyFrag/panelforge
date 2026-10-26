@@ -238,13 +238,46 @@ class CreationBatchService:
         return self.get(batch_id)
 
     def send_to_factory(self, batch_id, item_id, render_id):
+        self._send_factory_image(batch_id, item_id, render_id)
+        return self.get(batch_id)
+
+    def send_all_to_factory(self, batch_id):
+        """Send the currently available originals and variants, retaining per-image receipts."""
+        batch = self.get(batch_id)
+        if self.factory is None:
+            raise ValueError("L’Usine n’est pas configurée.")
+        candidates = []
+        report = dict(sent=0, already_sent=0, failed=0, errors=[])
+        for item in batch.items:
+            for render_id, render in [("initial", item), *((r.render_id, r) for r in item.renders)]:
+                status = render.status if isinstance(render, CreationBatchRender) else render.image_status
+                if status != "succeeded" or not render.output_asset_id:
+                    continue
+                if render.factory_item_id:
+                    report["already_sent"] += 1
+                else:
+                    candidates.append((item.item_id, render_id))
+        # Take a fixed snapshot: images completing during delivery belong to the
+        # next click. The shared per-image lock also protects concurrent bulk and
+        # individual requests, without holding the batch state lock over I/O.
+        for item_id, render_id in candidates:
+            try:
+                sent = self._send_factory_image(batch_id, item_id, render_id)
+                report["sent" if sent else "already_sent"] += 1
+            except Exception as error:
+                logger.exception("Batch factory delivery failed for %s/%s/%s", batch_id, item_id, render_id)
+                report["failed"] += 1
+                report["errors"].append(dict(item_id=item_id, render_id=render_id, message=str(error)[:500]))
+        return self.get(batch_id), report
+
+    def _send_factory_image(self, batch_id, item_id, render_id):
         if self.factory is None:
             raise ValueError("L’Usine n’est pas configurée.")
         with self._factory_lock:
             _, index, item = self._item(batch_id, item_id)
             render = self._render(item, render_id)
             if render.factory_item_id:
-                return self.get(batch_id)
+                return False
             if not render.output_asset_id:
                 raise ValueError("L’image n’est pas encore disponible.")
             config = configuration()
@@ -254,7 +287,7 @@ class CreationBatchService:
             factory_id = receipt["ids"][0]
             # A lost batch receipt is safe to retry: the factory deduplicates the immutable source/config.
             self._update_render(batch_id, index, render_id, factory_item_id=factory_id)
-            return self.get(batch_id)
+            return True
 
     def _update_render(self, batch_id, index, render_id, **changes):
         with self._lock:

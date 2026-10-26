@@ -127,6 +127,40 @@ class CreationBatchWebTests(unittest.TestCase):
         self.assertFalse(result["statuses_only"])
         self.assertTrue(result["items"][1]["name"])
 
+    def test_bulk_factory_endpoint_reports_receipts_and_repeated_posts_do_not_resend(self):
+        self.service.factory = FactoryDouble()
+        batch = self.service.create(**request_values())
+        self.service.process_next()
+        self.assisted.finish(self.service.get(batch.batch_id).items[0].project_id)
+        self.service.process_renders()
+        url = self.api + "/batches/" + batch.batch_id + "/factory"
+        first = self.client.post(url)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()["factory_delivery"], dict(sent=1, already_sent=0, failed=0, errors=[]))
+        self.assertTrue(first.json()["batch"]["items"][0]["renders"][0]["factory_item_id"])
+        self.assertIn("monitor", first.json())
+        again = self.client.post(url)
+        self.assertEqual(again.json()["factory_delivery"]["already_sent"], 1)
+        self.assertEqual(again.json()["factory_delivery"]["sent"], 0)
+        self.assertEqual(len(self.service.factory.calls), 1)
+        self.assertEqual(self.client.post(self.api + "/batches/missing/factory").status_code, 404)
+
+    def test_bulk_factory_endpoint_reports_partial_errors_without_claiming_delivery(self):
+        from unittest.mock import Mock
+        self.service.factory = Mock()
+        self.service.factory.receive.side_effect = OSError("Fixture storage unavailable")
+        batch = self.service.create(**request_values())
+        self.service.process_next()
+        self.assisted.finish(self.service.get(batch.batch_id).items[0].project_id)
+        self.service.process_renders()
+        response = self.client.post(self.api + "/batches/" + batch.batch_id + "/factory")
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["factory_delivery"]["sent"], 0)
+        self.assertEqual(result["factory_delivery"]["failed"], 1)
+        self.assertIn("Fixture storage unavailable", result["factory_delivery"]["errors"][0]["message"])
+        self.assertIsNone(result["batch"]["items"][0]["factory_item_id"])
+
 
 class BatchThumbnailTests(unittest.TestCase):
     def test_preview_is_small_cached_and_does_not_modify_original(self):

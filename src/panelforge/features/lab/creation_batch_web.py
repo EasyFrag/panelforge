@@ -153,10 +153,14 @@ def creation_batch_router(service):
         except (FileNotFoundError, KeyError) as error:
             raise HTTPException(404, "Aperçu indisponible.") from error
 
-    def mutate(operation):
+    def mutate(operation, *, with_delivery=False):
         try:
-            batch = operation(require())
-            return {"batch": serialize_batch(batch), "monitor": require().monitoring(batch)}
+            result = operation(require())
+            batch, delivery = result if with_delivery else (result, None)
+            response = {"batch": serialize_batch(batch), "monitor": require().monitoring(batch)}
+            if delivery is not None:
+                response["factory_delivery"] = delivery
+            return response
         except CreationBatchConflict as error:
             raise HTTPException(409, str(error)) from error
         except (FileNotFoundError, KeyError) as error:
@@ -173,5 +177,9 @@ def creation_batch_router(service):
     @router.post("/batches/{batch_id}/items/{item_id}/renders/{render_id}/factory")
     def send_factory(batch_id: str, item_id: str, render_id: str):
         return mutate(lambda active: active.send_to_factory(batch_id, item_id, render_id))
+
+    @router.post("/batches/{batch_id}/factory")
+    def send_all_factory(batch_id: str):
+        return mutate(lambda active: active.send_all_to_factory(batch_id), with_delivery=True)
 
     return router

@@ -10,7 +10,7 @@
   const state = {presets: [], spec: null, intentions: [], art: null, batch: null, rows: new Map(),
     loading: null, submitting: false, importing: false, importSerial: 0, initialized: false,
     poll: null, pollAbort: null, pending: null, styles: [], modelTouched: false, activating: null,
-    monitor: {}, actions: new Set(), artTarget: null};
+    monitor: {}, actions: new Set(), artTarget: null, factorySending: null};
   const getStored = key => { try { return localStorage.getItem(key); } catch (_) { return null; } };
   const setStored = (key, value) => { try { value ? localStorage.setItem(key, value) : localStorage.removeItem(key); } catch (_) { /* in-memory operation remains available */ } };
   const visible = () => !root.hidden && document.visibilityState !== "hidden";
@@ -38,6 +38,55 @@
     el("art-control").hidden = el("recipe").value !== "6.0.0";
     const localSupported = ["4.0.0", "5.0.0", "6.0.0"].includes(el("recipe").value);
     el("inspiration").disabled = !localSupported;
+    updateFactoryButton();
+  }
+  function updateFactoryButton() {
+    const images = (state.batch?.items || []).flatMap(item => item.renders
+      || [{...item, status: item.image_status}]).filter(render => render.status === "succeeded" && render.output_asset_id);
+    const available = images.filter(render => !render.factory_item_id).length;
+    const busy = state.factorySending === state.batch?.batch_id;
+    const sent = images.length > 0 && !available;
+    const button = el("factory-all");
+    button.disabled = Boolean(state.factorySending) || !available;
+    button.dataset.sent = String(sent && !busy);
+    button.setAttribute("aria-busy", String(busy));
+    button.textContent = busy ? "Envoi à l’usine…" : available ? `Envoyer tout à l’usine (${available})`
+      : sent ? "✓ Images envoyées" : "Envoyer tout à l’usine";
+    button.title = available ? `${available} image(s) disponible(s) non encore envoyée(s), originales et variantes incluses.`
+      : "Les nouvelles images terminées pourront être envoyées au prochain clic.";
+  }
+  function factoryMessage(text, error = false) {
+    el("factory-state").textContent = text || "";
+    el("factory-state").hidden = !text;
+    el("factory-state").dataset.error = String(error);
+  }
+  async function sendAllToFactory() {
+    if (!state.batch || state.factorySending || el("factory-all").disabled) return;
+    const batchId = state.batch.batch_id;
+    state.factorySending = batchId; updateFactoryButton();
+    factoryMessage("Envoi des images disponibles à l’usine…");
+    schedulePoll();
+    try {
+      const result = await request(`${api}/batches/${encodeURIComponent(batchId)}/factory`, {method: "POST"});
+      if (state.batch?.batch_id !== batchId) return;
+      renderBatch(result.batch); renderMonitoring(result.monitor || {});
+      const report = result.factory_delivery;
+      let text = `${report.sent} image(s) envoyée(s) · ${report.already_sent} déjà envoyée(s).`;
+      if (report.failed) text += ` ${report.failed} échec(s) : réessaie pour les images restantes.`
+        + "\n" + report.errors.slice(0, 3).map(e => `${e.item_id} · ${e.render_id === "initial" ? "Original" : "Variante"} : ${e.message}`).join("\n");
+      factoryMessage(text, Boolean(report.failed));
+    } catch (error) {
+      if (state.batch?.batch_id !== batchId) return;
+      // A lost response may hide durable receipts; refresh them before retrying.
+      try {
+        const result = await request(`${api}/batches/${encodeURIComponent(batchId)}`);
+        if (state.batch?.batch_id === batchId) { renderBatch(result.batch); renderMonitoring(result.monitor || {}); }
+      } catch (_) { /* Per-image server receipts still protect the next request. */ }
+      if (state.batch?.batch_id === batchId)
+        factoryMessage(error.message + " · Tu peux réessayer : les images déjà reçues ne seront pas renvoyées.", true);
+    } finally {
+      state.factorySending = null; updateFactoryButton(); schedulePoll();
+    }
   }
   function renderArt() {
     el("art-name").textContent = state.art?.display_name || state.art?.name || "Sans direction artistique";
@@ -287,6 +336,7 @@
     const changed = state.batch?.batch_id !== batch.batch_id;
     if (state.batch?.batch_id !== batch.batch_id) {
       state.rows.clear(); el("rows").replaceChildren(); hover.hidden = true;
+      factoryMessage("");
     }
     state.batch = batch;
     if (changed && !batch.terminal && batch.config) {
@@ -362,7 +412,8 @@
   }
   function schedulePoll() {
     clearTimeout(state.poll);
-    if (visible() && state.batch && !state.batch.terminal) state.poll = setTimeout(pollBatch, 2500);
+    if (visible() && state.batch && (!state.batch.terminal || state.factorySending === state.batch.batch_id))
+      state.poll = setTimeout(pollBatch, 2500);
   }
   async function pollBatch() {
     if (!visible() || !state.batch || state.pollAbort) return;
@@ -451,6 +502,7 @@
   el("form").addEventListener("submit", launch);
   el("preset").addEventListener("change", () => presetChanged());
   el("recipe").addEventListener("change", updateControls);
+  el("factory-all").addEventListener("click", sendAllToFactory);
   el("model").addEventListener("change", () => { state.modelTouched = true; updateControls(); });
   el("refresh").addEventListener("click", refresh);
   document.getElementById("krea2-assisted-preset-manager")?.addEventListener("close", () => {
