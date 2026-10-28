@@ -1,5 +1,113 @@
 # CONTINUITY
 
+## Vérification 2026-10-28 — dossier des LoRA MiniMax
+
+### Goal
+- Vérifier les fichiers du dossier `Y:/models/ComfyUi/loras/minmax_nsfw` indiqué par l’utilisateur en réponse à la question sur les LoRA H3 disponibles.
+
+### Current state
+- Dossier accessible : 26 fichiers `.safetensors`, environ 6 816 Mio. En-têtes JSON de tous les fichiers lus avec limite de taille, sans lecture des poids ni chargement de modèle. Les 26 en-têtes sont lisibles ; cela ne constitue pas une validation d’exécution.
+- Les métadonnées annexes déclarent « MiniMax H3 » pour 21 fichiers ; cinq n’ont pas cette étiquette dans les champs consultés. Les en-têtes présentent plusieurs conventions de clés LoRA et au moins un adaptateur LoKr ; certaines métadonnées d’architecture sont fantaisistes et ne permettent pas de certifier la compatibilité. Une variante Ref2VA est explicitement signalée dans les en-têtes.
+- Le préfixe `minmax_nsfw/` est déjà celui du catalogue de LoRA H3 vidéo de PanelForge (`domain/h3_render.py`, `infrastructure/h3_lora_resources.py`). Le contrat image MiniMax et le workflow Still ne chargent toujours pas de LoRA. Une future intégration doit conserver le chemin relatif ComfyUI et vérifier les formats réellement acceptés, sans garantir l’effet en image fixe d’un adaptateur prévu pour la vidéo.
+- Inventaire technique local : `.agent/diagnostics/mh-lora-feasibility-20261028/inventory.json`. Aucun poids téléchargé ou copié, aperçu ouvert, code applicatif modifié, test, génération, redémarrage, commit ou push.
+
+### Next steps
+- Pour une implémentation ultérieure, réutiliser l’inventaire existant et ajouter le support au workflow image versionné et à l’interface concernée. La lecture des métadonnées ne vaut pas qualification visuelle du rendu Still.
+
+## Faisabilité 2026-10-28 — LoRA pour le rendu image MiniMax
+
+### Goal
+- Répondre à la question de l’utilisateur sur l’ajout de LoRA au rendu MiniMax, avec vérification du workflow effectivement utilisé.
+
+### Current state
+- Le rendu image actuel utilise le manifeste `image.edit/minimax-h3-still/1.3.0`, un `MiniMaxH3HybridLoader` assemblant FL2VA BF16 et Ref2VA BF16, puis l’attention, le sampler et le décodage Fizgig Still. Aucun chargeur LoRA dans ce graphe ; aucun champ LoRA dans `MinimaxEditSettings` ou dans l’atelier MH actuel.
+- L’intégration de LoRA H3 est techniquement envisageable : PanelForge possède déjà des contrats et adaptations LoRA pour les rendus vidéo H3. La documentation de Fizgig confirme la prise en charge de LoRA/LoKr MiniMax H3 entraînés sur images et vidéos (`https://github.com/shootthesound/Fizgig/`). Cela ne qualifie pas automatiquement un fichier donné pour notre assemblage hybride et notre sortie image fixe.
+- Évolution envisagée : nouvelle version du workflow, chargeur LoRA avec liaisons dans le manifeste, sélection de fichiers H3, force individuelle et activation/désactivation, choix conservés par projet et figés avec chaque essai. Les LoRA KREA/FLUX ne sont pas transférables directement à H3. Réutilisation possible des mécanismes existants, sans copier les modules vidéo complets.
+- Lecture du code et consultation des sources uniquement ; aucun code applicatif modifié, LoRA téléchargé, test, appel LLM, génération, redémarrage, commit ou push.
+
+### Next steps
+- Si l’utilisateur demande l’implémentation, préciser les fichiers LoRA H3 à prendre en charge et le périmètre d’interface (Création Assistée MH et/ou Modifier avec MiniMax). La compatibilité et le résultat visuel de chaque LoRA en Still restent à qualifier par l’utilisateur.
+
+## Livraison 2026-10-28 — CSV de fiches de poses pour Création batch
+
+### Goal
+- Fournir un CSV `nom;intention` directement importable dans l'atelier Création batch KREA, reprenant les deux références personnelles PF001/PF002 et enrichissant le catalogue avec d'autres postures, chacune déclinée en face centrée, profil, trois-quarts, plongée et contre-plongée.
+
+### Current state
+- Livré dans `output/poses-mannequins-adultes-krea.csv` : 50 intentions uniques, soit 10 postures × 5 angles. PF001 correspond aux genoux repliés avec prises aux chevilles et PF002 aux jambes tendues levées en V ; huit postures supplémentaires couvrent grand écart assis, accroupissement large, pont dorsal, fente basse, arc à genoux, équilibre latéral, pigeon redressé et étoile dorsale.
+- Chaque série répète le même bloc géométrique de posture ; seule la directive de caméra varie. Chaque ligne exige une seule figure adulte en pied, une seule vue, un dessin au trait gris sur fond blanc, sans montage ni vignette secondaire.
+- La demande de contenu sexuel explicite n'a pas été reprise. Les intentions cadrent explicitement un mannequin lisse et asexué, sans détails intimes ni contexte sexuel, tout en conservant les géométries de pose des deux références.
+- Validation locale en lecture seule réussie avec le parseur CSV standard en mode strict : en-tête exact `nom;intention`, 50 lignes, 50 noms uniques, aucune intention vide, fichier UTF-8 de 51 691 octets. Le chargement du parseur applicatif n'a pas pu être effectué dans le Python courant car `pydantic` n'y est pas installé ; aucune dépendance ajoutée.
+- Aucun test du projet, appel LLM, génération d'image/vidéo, service, code applicatif, commit ou push. Les nombreuses modifications préexistantes du worktree ont été laissées intactes.
+
+### Next steps
+- Importer `output/poses-mannequins-adultes-krea.csv` dans Création batch, choisir le preset et la langue, puis lancer seulement lorsque les générations concurrentes le permettent.
+- La cohérence géométrique entre cinq rendus indépendants reste probabiliste. Si une fidélité stricte est requise, réutiliser la même référence de pose et, lorsque le moteur l'expose, la même graine pour les cinq angles.
+
+## Ajout 2026-10-28 — deux références personnelles de face
+
+### Goal
+- Utiliser telles quelles les deux vignettes fournies par l’utilisateur pour ajouter deux références de face, sans nouvelle génération.
+
+### Current state
+- Terminé : les fichiers exacts ont été récupérés depuis les pièces jointes du message du 28/10 à 13:41:31 UTC dans la session courante, puis copiés à l’identique dans le workspace. Contrairement à l’hypothèse des tentatives précédentes, leurs octets PNG sont accessibles dans le journal de cette session. Aucune image créée, modifiée, agrandie ou générée.
+- Deux poses distinctes dans la famille « Mes poses », catégorie « Allongé », angle « Face » : `PF001 — Genoux repliés` (`personal_pf001_front`, 94 × 92 pixels) et `PF002 — Jambes levées en V` (`personal_pf002_front`, 120 × 165 pixels). Catalogue total : 290 poses / 1 441 vues. La faible résolution est celle des fichiers fournis.
+- Images dans `workspace/catalogs/ai-pose-gallery/personal/img/`, manifeste explicite `personal/catalog.json`. Source identifiée comme personnelle, sans fausse URL AI Pose Gallery. Les deux PNG servent aussi de miniatures, sans conversion. Le manifeste est séparé de l’index distant : installer ou actualiser le site conserve les poses personnelles, qui fonctionnent aussi sans catalogue distant. Aucun fichier de médias ajouté au dépôt Git.
+- Adaptateur `infrastructure/pose_catalog.py` étendu : combinaison des index, cache du manifeste local, validation des identifiants/groupes/chemins/révisions/empreintes, lecture locale sans réseau, vérification PNG avant utilisation et provenance lors de la sélection. L’index distant initial reste identique. Les essais existants et P055/P062 restent inchangés.
+- Trois fichiers synchronisés vers `D:/Code/panelforge-krea2-flux` après vérification des versions initiales et finales, avec sauvegardes : adaptateur, tests, guide. Le port 7861 ne répondait pas lors de cette tâche ; aucun lancement ou redémarrage de service effectué. Les nouvelles références apparaîtront au prochain lancement du Lab avec ce code et le workspace partagé.
+- Installation effective vérifiée : les deux images lues comme références et miniatures sont identiques aux fichiers reçus ; provenance personnelle et compte 290 / 1 441 contrôlés sans téléchargement. Syntaxe de deux modules Python et espaces des ajouts vérifiés. Tests de persistance après actualisation, fonctionnement sans galerie distante, conservation des octets, chemins invalides et images modifiées ajoutés mais NON exécutés conformément à AGENTS.md. Aucun LLM, rendu MiniMax/ComfyUI ou imagegen utilisé pendant cette tâche.
+- Preuves : `.agent/diagnostics/mh-personal-poses-20261028/` (`attachments.json`, `installed.json`, `baseline.json`, `before/`, `review.diff`, `static-checks.json`, `sync-final.json`, `lab-before/`). Aucun commit ni push réalisé.
+
+### Next steps
+- Au prochain lancement du Lab, ouvrir le sélecteur de poses puis « Mes poses » et « Face », ou rechercher PF001/PF002. Les images sont prêtes dans le workspace ; aucune installation du catalogue en ligne nécessaire pour ces deux poses.
+- Tests laissés à l’utilisateur : `python -m unittest discover -s tests -p "test_pose_catalog.py"`. Aucun succès navigateur revendiqué avant qualification utilisateur.
+
+## Tentative 2026-10-28 — nouveaux angles depuis les vignettes fournies
+
+### Goal
+- Essayer de produire les angles des deux poses à partir des nouvelles images jointes par l’utilisateur, qui ne dispose pas de références de meilleure résolution.
+
+### Current state
+- Le générateur intégré a reçu directement la seconde image (mannequin articulé) pour créer une vue en trois-quarts, en conservant sa posture et son niveau de détail. Aucun rendu du Lab ni appel MiniMax/ComfyUI lancé.
+- Échec HTTP 400 `moderation_blocked`, étape `output`, catégorie `sexual`, requête `68e50ab3-bb37-4c5d-8f1d-bf436ca39d55`. Aucun fichier image produit ; aucune pose et aucun angle ajoutés. Après ce refus, aucune autre génération ni méthode de contournement engagée.
+- Prompt et erreur conservés dans `.agent/diagnostics/mh-reference-angles-20261028/result.json`. Aucun code applicatif modifié, test lancé, redémarrage, commit ou push.
+
+### Next steps
+- Informer l’utilisateur que les images de référence directes n’ont pas permis de générer les nouveaux angles avec cet outil. Ne pas promettre des vues produites ou intégrées.
+
+## Tentative 2026-10-28 — deux références de pose strictement de face
+
+### Goal
+- À la demande explicite de l’utilisateur, créer deux variantes de face des poses genoux repliés et jambes levées en V, comparables aux exemples fournis ou à P062/P055, et les ajouter au catalogue.
+
+### Current state
+- Cadrage compris comme une caméra centrée dans l’axe du corps depuis les pieds, tête visible, membres symétriques, sans décalage latéral ni vue en trois-quarts. Deux nouvelles références distinctes étaient prévues, sans remplacement des images originales.
+- Skill `C:/Users/samue/.codex/skills/.system/imagegen/SKILL.md` lu et appliqué. Deux appels au générateur intégré `image_gen`, un par pose, décrivant un mannequin adulte articulé sans traits ni anatomie détaillée, sur fond blanc. Ces générations étaient les livrables expressément demandés par l’utilisateur, pas des générations de vérification.
+- Les deux appels ont échoué : HTTP 400, `moderation_blocked`, étape `output`, catégorie fournie `other`. Identifiants : `cacc7ef1-3687-41b1-b8ba-5678ecde3b9e` et `6213b867-3e51-4bfe-8f0e-c2b0e798c359`. Aucun fichier image produit, aucune pose ajoutée au catalogue, aucun changement de code applicatif ou de références existantes. Aucun contournement par un autre générateur, aucune relance ni appel au Lab.
+- Prompts conservés dans `.agent/diagnostics/mh-front-poses-20261028/prompts.json`. L’utilisateur a été informé du refus et de l’absence de résultat. Aucun test, redémarrage, commit ou push effectué.
+
+### Next steps
+- Les deux poses ne sont pas livrées. Pour poursuivre leur intégration sans nouvelle génération, obtenir les fichiers de référence existants ou leur source. Ne pas présenter les P055/P062 déjà disponibles comme de nouvelles vues strictement de face.
+
+## Correctifs 2026-10-28 — galerie de poses MH en français
+
+### Goal
+- Corriger les libellés japonais, les filtres indépendants, les accents du nom de Création Assistée MH et le bouton d’actualisation. Rechercher les deux exemples supplémentaires fournis par l’utilisateur.
+
+### Current state
+- Sept fichiers ajoutés/modifiés et synchronisés vers `D:/Code/panelforge-krea2-flux`, avec sauvegardes et empreintes initiales/finales vérifiées. Le Lab actif sur 7861 utilise ce checkout et le workspace partagé `D:/Code/panelforge/workspace`. Aucun service redémarré.
+- Nouvelle table française `infrastructure/pose_catalog_fr.py` : les 288 noms, toutes les familles et catégories installées sont couverts. Traduction à la lecture des métadonnées ; aucun téléchargement ni réinstallation nécessaire pour traduire un catalogue déjà installé. Index, révision de cache, identifiants, médias et essais enregistrés restent inchangés. Nom original conservé dans `source_name` pour la recherche ; libellé français neutre pour les futures entrées sans traduction.
+- Les 80 poses solo précédemment nommées « Corps entier · expressif » sont maintenant repérables sous « Corps entier · NSFW ». Aucun filtre d’exclusion n’a été ajouté. Les catégories suivent la famille et la recherche ; les angles suivent les catégories disponibles ; un choix devenu incompatible revient à « Tous ». Recherche française sans accents, recherche des noms originaux conservée et choix valides préservés lors d’une actualisation du catalogue.
+- Les huit libellés de navigation contenaient littéralement `Cr?ation Assist?e MH` : remplacement UTF-8 par « Création Assistée MH ». Le titre principal était déjà correct. Le bouton Actualiser reprend le SVG flèche circulaire et le style des ateliers voisins, avec titre et nom accessible. Script versionné `20261028.mh2`.
+- Catalogue source reconsulté : 288 poses / 1 439 vues, aucun identifiant absent de l’index local. 35 miniatures candidates consultées pour comparer les exemples. Les deux vignettes exactes et leur éventuel dépôt d’origine n’ont pas été identifiés ; l’utilisateur n’a pas le lien et pense à un autre dépôt. `https://github.com/anhao/ai-pose-gallery-zh` est un miroir de la même collection, sans poses supplémentaires annoncées. P055/P062/P067 de la famille NSFW proposent des variantes proches, sans correspondance exacte confirmée. Aucun média supplémentaire incorporé au catalogue ou au dépôt.
+- Contrôles statiques réussis : syntaxe de quatre modules Python, JS de l’atelier et scénario navigateur assemblé, couverture des 288 noms et 1 439 vues, zéro libellé japonais restant parmi les champs affichés du catalogue installé, huit onglets correctement accentués, identifiants HTML uniques et icône accessible. Scénarios ajoutés pour traduction d’un index existant sans changement de révision ni réseau, repli pour nouvelles poses, dépendances des filtres, réinitialisation des choix incompatibles et recherche. Tests NON exécutés selon AGENTS.md ; aucun appel LLM ni génération. Guide `docs/mh-assisted.md` actualisé.
+- Preuves dans `.agent/diagnostics/mh-pose-picker-20261028/` : `baseline.json`, `before/`, `review.diff`, `static-checks.json`, `js-syntax.json`, `sync-plan.json`, `sync-final.json`, `lab-before/`, catalogue consulté et miniatures de comparaison. Correctifs locaux, aucun nouveau commit/push pendant cette tâche.
+
+### Next steps
+- L’utilisateur redémarre le Lab au moment compatible avec ses productions et recharge la page pour charger le backend de traduction et les nouveaux assets. Pas besoin de réinstaller le catalogue.
+- Tests laissés à l’utilisateur : `python -m unittest discover -s tests -p "test_pose_catalog.py"` et `python -m unittest discover -s tests -p "test_mh_assisted_browser.py"`. Aucun succès fonctionnel navigateur revendiqué avant exécution.
+- L’intégration des deux vignettes exactes nécessite encore d’identifier leurs fichiers d’origine ou une source exploitable ; ne pas présenter les poses proches comme les mêmes images.
+
 ## Version GitHub 2026-10-28 — Création Assistée MH V1
 
 ### Goal
@@ -8,7 +116,7 @@
 ### Current state
 - Implémentation MH terminée et synchronisée vers le checkout du Lab `D:/Code/panelforge-krea2-flux` lors de la tâche précédente. Les empreintes des 19 fichiers de code/tests/guide sont toujours identiques à `mh-assisted-20261028/sync-final.json`. Atelier Image Lab, presets existants, langue anglais/chinois, directions artistiques, conversation, réglages MiniMax et historique ; une pose avec son angle et/ou une autre image obligatoire, images fixes uniquement. Guide : `docs/mh-assisted.md`.
 - Catalogue personnel installé : 288 poses / 1 439 vues depuis AI Pose Gallery, index dans le workspace partagé ; médias téléchargés à la demande et exclus du dépôt. Tests ajoutés mais non exécutés ; contrôles statiques réussis. Aucun appel LLM, rendu ou redémarrage de service pour la validation. L’enregistrement d’un essai MH comme nouveau preset n’est pas proposé dans cette V1.
-- Version : branche `snapshots/mh-assisted-v1-2026-10-28`, à la suite de la sauvegarde publiée `3e2283dd1908ff524d6bbd69b9b38e828328a9e8`. La destination publique exacte a déjà été autorisée par l’utilisateur, qui demande maintenant la publication de l’implémentation. Notes : `docs/releases/mh-assisted-v1-2026-10-28.md`. Preuves de préparation/publication dans `.agent/diagnostics/mh-assisted-release-20261028/`.
+- Version publiée et référence distante vérifiée : commit `c4e76c200114879691de10fd4722b965c9ff537c`, branche `snapshots/mh-assisted-v1-2026-10-28`, à la suite de la sauvegarde publiée `3e2283dd1908ff524d6bbd69b9b38e828328a9e8`. La destination publique exacte a déjà été autorisée par l’utilisateur, qui a demandé la publication de l’implémentation. Notes : `docs/releases/mh-assisted-v1-2026-10-28.md`. Preuves dans `.agent/diagnostics/mh-assisted-release-20261028/publication.json` ; HEAD et index courant vérifiés inchangés.
 - Le compteur initial de 223 correspond exactement à 93 fichiers modifiés et 130 non suivis par la branche courante `master`, toujours à `a5dc16e` du 19 octobre. Les sauvegardes récentes sont sur des branches distinctes ; elles n’ont pas déplacé `master` ni changé son index. Le compteur inclut donc les évolutions antérieures et des fichiers locaux, et ne représente pas 223 modifications causées par MH. La publication d’une branche de version ne nettoie pas ce compteur.
 - La continuité présente au début de cette tâche contenait encore le cadrage. Les empreintes de l’implémentation ont été contrôlées et son état effectif est rétabli dans cette note, en conservant les entrées antérieures.
 

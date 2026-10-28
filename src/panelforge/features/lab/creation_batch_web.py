@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from panelforge.application.creation_batch import CreationBatchConflict
 from panelforge.application.creation_batch_csv import parse_intentions_csv
-from panelforge.domain.creation_batch import MAX_BATCH_ITEMS, MAX_CSV_BYTES
+from panelforge.domain.creation_batch import CreationBatchRenderMode, MAX_BATCH_ITEMS, MAX_CSV_BYTES
 from .krea2_assisted_web import _serialize_krea2_art_direction
 
 
@@ -31,6 +31,7 @@ class CreationBatchBody(BaseModel):
     preset_id: str = Field(min_length=1, max_length=128)
     preset_revision: int = Field(ge=1)
     art_style_id: str | None = Field(default=None, max_length=200)
+    render_mode: CreationBatchRenderMode = CreationBatchRenderMode.FLUX_KLEIN
 
 
 class CreationVariantBody(BaseModel):
@@ -82,6 +83,7 @@ def serialize_batch(batch, *, statuses_only=False):
         "config": {"model_id": batch.config.model_id, "recipe_version": batch.config.recipe_version,
                    "language": batch.config.language.value, "local_inspiration": batch.config.local_inspiration,
                    "preset_id": batch.config.preset.preset_id,
+                   "render_mode": batch.config.render_mode.value,
                    "art_direction": _serialize_krea2_art_direction(batch.config.art_direction)},
     }
 

@@ -22,8 +22,17 @@ et son absence de visage ne sont pas des attributs à reprendre automatiquement.
 Le popup de poses regroupe les angles d’une même pose. Recherche, famille,
 catégorie, angle et pagination permettent de parcourir le catalogue. Une pose et
 un angle sont actifs à la fois ; une pose du catalogue peut elle-même montrer un duo.
-Les noms originaux sont conservés ; les angles, familles et catégories courantes
-sont présentés en français.
+Les 288 noms de poses, familles, catégories et angles sont présentés en français.
+La famille **Corps entier · NSFW** regroupe les 80 poses précédemment affichées
+sous « Corps entier · expressif ». Les catégories suivent la famille et la
+recherche ; les angles suivent ensuite les catégories disponibles. Un choix
+devenu incompatible est remis à « Tous ». La recherche ignore les accents et
+permet aussi de retrouver les noms japonais originaux, conservés en métadonnées.
+
+Les traductions sont appliquées à la lecture : aucun bouton d’installation n’est
+nécessaire pour traduire un index existant, et les révisions des images en cache
+et les essais déjà enregistrés restent inchangés. Une future pose sans traduction
+reçoit un libellé français neutre en attendant sa traduction.
 
 Les images supplémentaires peuvent être réservées à l’assistant ou transmises au
 moteur, avec un rôle explicite. MiniMax accepte au total neuf références de rendu,
@@ -84,6 +93,21 @@ Une actualisation invalide conserve l’index précédent.
 Ce catalogue est une installation personnelle. Les images ne sont pas incluses
 dans le dépôt Git ni redistribuées avec PanelForge. Les conditions du site
 autorisent leur usage comme référence mais interdisent leur redistribution.
+
+### Références personnelles de face
+
+La famille **Mes poses** contient les deux vignettes fournies par l’utilisateur :
+**PF001 — Genoux repliés** et **PF002 — Jambes levées en V**, avec l’angle **Face**.
+Leurs fichiers PNG sont conservés tels quels, en 94 × 92 et 120 × 165 pixels.
+Aucun autre angle ni détail n’a été généré. Leur petite résolution reste celle
+des références d’origine.
+
+Le manifeste explicite `workspace/catalogs/ai-pose-gallery/personal/catalog.json`
+et ses images sont distincts de l’index du site : une actualisation du catalogue
+conserve les poses personnelles. Elles restent utilisables sans installation de
+la galerie distante. La provenance enregistrée avec un essai indique qu’il s’agit
+d’une image personnelle ; aucune URL du site n’est attribuée à ces vignettes.
+Le sélecteur et les références de rendu réutilisent les fichiers d’origine.
 
 ## Organisation et validation
 

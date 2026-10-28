@@ -12,7 +12,7 @@
   <script src="/static/workshop-loader.js?v=20261028.mh1" defer></script>
   <script src="/static/lab-core.js?v=20261028.mh1" defer></script>
   <link rel="stylesheet" href="/static/mh-assisted.css?v=20261028.mh1">
-  <template data-lab-script="mh-assisted.js"><script src="/static/mh-assisted.js?v=20261028.mh1" defer></script></template>
+  <template data-lab-script="mh-assisted.js"><script src="/static/mh-assisted.js?v=20261028.mh2" defer></script></template>
   <link rel="stylesheet" href="/static/stories.css?v=20260927.editions1">
   <link rel="stylesheet" href="/static/story-continuity.css?v=20260922.1">
   <template data-lab-script="story-continuity.js"><script src="/static/story-continuity.js?v=20260927.sparse-states" defer></script></template>
@@ -57,7 +57,7 @@
   <script src="/static/krea2-assisted-restaging.js?v=20260908.1" defer></script>
   <script src="/static/krea2-assisted-lab.js?v=20261026.batchpresets1" defer></script>
   <link rel="stylesheet" href="/static/creation-batch.css?v=20261026.3">
-  <template data-lab-script="creation-batch.js"><script src="/static/creation-batch.js?v=20261026.3" defer></script></template>
+  <template data-lab-script="creation-batch.js"><script src="/static/creation-batch.js?v=20261028.mode1" defer></script></template>
   <template data-lab-script="image-crop.js"><script src="/static/image-crop.js?v=20260914.1" defer></script></template>
   <template data-lab-script="krea2-edit-lab.js"><script src="/static/krea2-edit-lab.js?v=20260914.2" defer></script></template>
   <link rel="stylesheet" href="/static/qwen-edit-v2.css?v=20260928.minimax1">
@@ -862,7 +862,7 @@
   <main id="change-view-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
-      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Création Assistée MH</button>
       <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
       <button class="active" type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -977,7 +977,7 @@
   <main id="mh-assisted-lab-workspace" class="krea2-assisted-lab-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Ateliers Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
-      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Création Assistée MH</button>
       <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -987,7 +987,9 @@
     </nav>
     <aside class="controls krea2-assisted-controls">
       <div class="title-row"><div><small>MINIMAX · IMAGE</small><h1>Création Assistée MH</h1></div>
-        <button id="mh-refresh" type="button" title="Actualiser les ressources et le projet">Actualiser</button></div>
+        <button id="mh-refresh" class="krea2-assisted-refresh-all" type="button" title="Actualiser les ressources et le projet" aria-label="Actualiser les ressources et le projet">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6.1 8.2A7 7 0 0 1 18.6 7M17.9 15.8A7 7 0 0 1 5.4 17"/></svg>
+        </button></div>
       <p id="mh-status" class="muted" role="status"></p>
       <details id="mh-new-project" class="krea2-assisted-new-project" open>
         <summary>Nouveau projet</summary>
@@ -1070,7 +1072,7 @@
   <main id="creation-batch-workspace" class="krea2-assisted-lab-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Ateliers Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
-      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Création Assistée MH</button>
       <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -1100,7 +1102,11 @@
             <button id="cb-preset-manage" class="krea2-assisted-preset-manage" data-krea2-preset-manage type="button">Gérer</button>
           </div>
           <small id="cb-preset-note" class="muted">Le preset détermine les réglages KREA2.</small>
-          <p class="muted">Nouveaux batchs : Flux Klein + Moody Beta · 8 + 4.</p>
+          <label>Mode de rendu<select id="cb-render-mode" required aria-describedby="cb-render-mode-note">
+            <option value="krea2-sampling">KREA2 · 2 passes</option>
+            <option value="krea2-flux-klein" selected>KREA2 · 2 passes + Flux Klein</option>
+          </select></label>
+          <p id="cb-render-mode-note" class="muted">Nouveaux batchs : Moody Beta · 8 + 4 dans les deux modes. Ce choix est indépendant du preset.</p>
           <div id="cb-art-control" class="krea2-art-direction-compact">
             <img id="cb-art-image" alt="Direction artistique" hidden>
             <div><b id="cb-art-name">Sans direction artistique</b><small>Direction commune au batch.</small></div>
@@ -1142,7 +1148,7 @@
   <main id="krea2-assisted-lab-workspace" class="krea2-assisted-lab-workspace">
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button class="active" type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
-      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Création Assistée MH</button>
       <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -1445,7 +1451,7 @@
   <main id="qwen-edit-lab-workspace" class="qwen-v2-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
-      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Création Assistée MH</button>
       <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -1577,7 +1583,7 @@
   <main id="image-journey-workspace" class="ij-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
-      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Création Assistée MH</button>
       <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -1711,7 +1717,7 @@ Conserver exactement le cadrage, le point de vue et les éléments fixes environ
   <main id="minimax-edit-lab-workspace" class="qwen-v2-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
-      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Création Assistée MH</button>
       <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -1843,7 +1849,7 @@ Conserver exactement le cadrage, le point de vue et les éléments fixes environ
   <main id="krea2-edit-lab-workspace" class="krea2-edit-lab-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
-      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Création Assistée MH</button>
       <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button class="active" type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>

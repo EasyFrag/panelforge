@@ -50,6 +50,7 @@ class CreationBatchBrowserTests(unittest.TestCase):
             else if(url.endsWith('/batches')&&method==='POST'){
               const body=JSON.parse(options.body);
               batch={batch_id:'creation-batch-'+body.request_id.replaceAll('-',''),name:body.name,revision:1,
+                config:{...body,art_direction:null},preset_name:preset.name,
                 terminal:false,counts:{total:2,finished:0,succeeded:0,failed:0},items:intentions.map((item,i)=>({
                   ...item,item_id:String(i+1),prompt_status:'queued',image_status:'waiting',error:null}))};
               if(failReceipt){failReceipt=false;throw new TypeError('Lost response fixture');}
@@ -105,30 +106,40 @@ class CreationBatchBrowserTests(unittest.TestCase):
             await settle();check(calls.length===0,'no hidden discovery');
             root.hidden=false;await settle();
             check(el('recipe').value==='6.0.0'&&!el('inspiration').checked,'batch defaults');
+            check(el('render-mode').value==='krea2-flux-klein','Flux Klein is the default render mode');
+            check([...el('render-mode').options].map(o=>o.value).join(',')==='krea2-sampling,krea2-flux-klein','two supported modes');
+            check(el('render-mode-note').textContent.includes('Moody Beta'),'fixed Moody Beta is visible');
             check(el('model').value===gemma&&el('local').checked,'local Gemma default');
             check(el('factory-all').disabled,'bulk send disabled before images');
             check(el('factory-all').parentElement.contains(el('count')),'bulk button beside global count');
             check(getComputedStyle(el('factory-all')).backgroundColor==='rgb(105, 69, 144)','factory purple');
             check(!root.querySelector('aside details'),'form always expanded');
             const nav=[...root.querySelectorAll('[data-image-lab-mode]')];
-            check(nav[0].dataset.imageLabMode==='krea2-assisted-lab'&&nav[1].dataset.imageLabMode==='creation-batch','adjacent navigation');
+            check(nav[0].dataset.imageLabMode==='krea2-assisted-lab'&&nav.some(n=>n.dataset.imageLabMode==='creation-batch'),'batch navigation');
             const files=new DataTransfer();files.items.add(new File(['intention\ntext'],'lips.csv',{type:'text/csv'}));
             el('file').files=files.files;el('file').dispatchEvent(new Event('change'));await settle();
             check(el('import-state').textContent.includes('2 intentions'),'parsed count');
             check(el('name').value==='lips','filename supplies batch name');
+            el('render-mode').value='krea2-sampling';
             el('preset').value='style-fixture';el('preset').dispatchEvent(new Event('change'));
+            check(el('render-mode').value==='krea2-sampling','preset selection preserves render mode');
             el('name').value='My batch';el('language').value='zh';
             el('refresh').click();await settle();
             check(el('name').value==='My batch'&&el('language').value==='zh'&&el('import-state').textContent.includes('2 intentions'),'refresh preserves draft');
+            check(el('render-mode').value==='krea2-sampling','refresh preserves draft render mode');
             el('launch').click();await settle();
             check(el('message').textContent.includes('Lost response'),'uncertain receipt is visible');
+            el('render-mode').value='krea2-flux-klein';
             el('launch').click();await settle();
             const launches=calls.filter(([url,o])=>url.endsWith('/batches')&&o.method==='POST').map(([,o])=>JSON.parse(o.body));
             check(launches.length===2&&launches[0].request_id===launches[1].request_id,'retry uses same request ID');
             check(launches[0].language==='zh'&&!launches[0].local_inspiration,'explicit choices reach server');
+            check(launches.every(body=>body.render_mode==='krea2-sampling'),'retry preserves the submitted mode');
+            check(el('render-mode').value==='krea2-sampling','active batch restores its saved mode');
             check(!('settings' in launches[0])&&!('model_name' in launches[0]),'no client render override');
             check(el('rows').children.length===2&&!el('rows').querySelector('img'),'one safe text row per intention');
             check(el('fields').disabled,'active settings are frozen');
+            check(el('render-mode').matches(':disabled'),'active render mode is frozen');
             batch.revision=2;batch.items[0]={...batch.items[0],prompt_status:'succeeded',image_status:'succeeded',
               output_asset_id:'asset-fixture',thumbnail_url:imageUrl,hover_url:imageUrl,image_url:imageUrl};
             batch.counts={total:2,finished:1,succeeded:1,failed:0};

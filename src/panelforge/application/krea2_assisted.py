@@ -20,7 +20,7 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from panelforge.domain.assets import Asset
-from panelforge.domain.creation_batch import CreationBatchConfig
+from panelforge.domain.creation_batch import CreationBatchConfig, CreationBatchRenderMode
 from panelforge.domain.krea2_assisted import (
     Krea2AssistedAttempt,
     Krea2AssistedAttemptStatus,
@@ -394,19 +394,22 @@ class Krea2AssistedService:
             ) if preset else None),
         ))
 
-    def snapshot_batch_preset(self, preset_id: str, expected_revision: int) -> tuple[Krea2StylePreset, Krea2AssistedSettings]:
-        """Freeze a new batch's style with Flux Klein/Moody, independently of its source render."""
+    def snapshot_batch_preset(
+        self, preset_id: str, expected_revision: int, *,
+        render_mode: CreationBatchRenderMode = CreationBatchRenderMode.FLUX_KLEIN,
+    ) -> tuple[Krea2StylePreset, Krea2AssistedSettings]:
+        """Freeze the chosen workflow with Moody Beta, independently of the preset's source render."""
+        workflow = CreationBatchRenderMode(render_mode).workflow
         preset = self._preset(preset_id)
         if preset.revision != expected_revision:
             raise ValueError("Le preset a changé. Actualise les ressources avant de lancer le batch.")
-        # Historical presets only store style settings. Never let their source
-        # implicitly select the old 8+2 mode. Existing batch snapshots and explicit
-        # render variants keep their settings; only new preset selections use this.
+        # Presets supply style settings; the batch explicitly selects its workflow.
+        # Existing snapshots and explicit render variants keep their saved settings.
         base = preset.settings
         settings = Krea2AssistedSettings(
             model_name=base.model_name, loras=base.loras,
             aspect_ratio=base.aspect_ratio, megapixels=base.megapixels,
-            workflow=KREA2_FLUX_KLEIN_WORKFLOW,
+            workflow=workflow,
             sampling=sampling_from_dict(None, default_preset_id="moody_beta"),
         )
         self._validate_render_settings(settings, allow_cached=True)

@@ -13,7 +13,7 @@ from panelforge.application.machine_work import MachineWorkCoordinator
 from panelforge.application.work_context import llm_owner_prefix
 from panelforge.application.prompt_lab import CompletionRequest, CompletionStreamEvent, StreamEventKind, StreamPhase
 from panelforge.domain.krea2_art_direction import Krea2ArtDirection
-from panelforge.domain.creation_batch import CreationBatchRender
+from panelforge.domain.creation_batch import CreationBatchRender, CreationBatchRenderMode
 from panelforge.domain.krea2_sampling import sampling_from_dict
 from panelforge.domain.production import ComputeResource, ProductionWorkload
 from panelforge.infrastructure.creation_batch_progress import CreationBatchProgress
@@ -43,8 +43,8 @@ class CreationBatchVariantTests(unittest.TestCase):
         self.factory = FactoryDouble()
         self.service = CreationBatchService(self.store, self.assisted, factory=self.factory)
 
-    def finished(self):
-        batch = self.service.create(**request_values())
+    def finished(self, **changes):
+        batch = self.service.create(**request_values(**changes))
         self.service.process_next()
         item = self.service.get(batch.batch_id).items[0]
         self.assisted.finish(item.project_id)
@@ -167,6 +167,28 @@ class CreationBatchVariantTests(unittest.TestCase):
         restarted.process_renders()
         self.assertEqual(self.assisted.prepare_calls, prepared)
         self.assertEqual(len(self.assisted.queue_calls), 2)
+
+    def test_preset_variants_keep_source_mode_with_moody_even_from_a_render_variant(self):
+        for mode in CreationBatchRenderMode:
+            with self.subTest(mode=mode):
+                batch = self.finished(render_mode=mode)
+                self.service.add_variant(batch.batch_id, "1", request_id=str(uuid4()), kind="render")
+                self.service.process_renders()
+                render = self.service.get(batch.batch_id).items[0].renders[0]
+                self.assisted.finish(render.project_id)
+                self.service.process_renders()
+                for source_id in ("initial", render.render_id):
+                    updated = self.service.add_variant(batch.batch_id, "1", request_id=str(uuid4()), kind="preset",
+                        source_render_id=source_id, preset_id=self.assisted.preset.preset_id, preset_revision=1)
+                    child = updated.items[-1]
+                    self.assertEqual(child.config.settings.workflow, mode.workflow)
+                    self.assertEqual(child.config.settings.sampling.preset_id, "moody_beta")
+                    self.assertEqual(self.store.get(batch.batch_id).items[-1].config, child.config)
+                    self.service.process_next()
+                    child = self.service.get(batch.batch_id).items[-1]
+                    attempt = self.assisted.projects.get(child.project_id).attempt(child.attempt_id)
+                    self.assertEqual(attempt.settings.workflow, mode.workflow)
+                    self.assertEqual(attempt.settings.sampling.preset_id, "moody_beta")
 
     def test_factory_receipt_survives_reload_and_lost_receipt_retry(self):
         batch = self.finished()

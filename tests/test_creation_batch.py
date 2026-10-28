@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from panelforge.application.creation_batch import CreationBatchService, CreationBatchConflict
 from panelforge.application.creation_batch_csv import parse_intentions_csv
-from panelforge.domain.creation_batch import MAX_BATCH_ITEMS, MAX_CSV_BYTES
+from panelforge.domain.creation_batch import CreationBatchRenderMode, MAX_BATCH_ITEMS, MAX_CSV_BYTES
 from panelforge.domain.krea2_assisted import Krea2AssistedProject, Krea2AssistedAttempt, Krea2AssistedAttemptStatus
 from panelforge.domain.krea2_assisted_workflows import KREA2_FLUX_KLEIN_WORKFLOW
 from panelforge.domain.krea2_batch import Krea2PromptLanguage
@@ -62,12 +62,15 @@ class AssistedDouble:
     def list_assistance_recipes(self):
         return [{"version": "6.0.0"}]
 
-    def snapshot_batch_preset(self, preset_id, revision):
+    def snapshot_batch_preset(self, preset_id, revision, *, render_mode=CreationBatchRenderMode.FLUX_KLEIN):
         if (preset_id, revision) != (self.preset.preset_id, self.preset.revision):
             raise ValueError("Preset changed")
         base = self.preset.settings
-        return self.preset, replace(self.render_settings, model_name=base.model_name, loras=base.loras,
-                                    aspect_ratio=base.aspect_ratio, megapixels=base.megapixels)
+        settings = replace(self.render_settings, model_name=base.model_name, loras=base.loras,
+                           aspect_ratio=base.aspect_ratio, megapixels=base.megapixels)
+        if isinstance(settings, Krea2AssistedSettings):
+            settings = replace(settings, workflow=CreationBatchRenderMode(render_mode).workflow)
+        return self.preset, settings
 
     def create_batch_project(self, *, config, name, intention, managed_key):
         if managed_key in self.keys:
@@ -169,6 +172,40 @@ class CreationBatchTests(unittest.TestCase):
             batches = list(pool.map(lambda _: self.service.create(**values), range(4)))
         self.assertEqual(len({batch.batch_id for batch in batches}), 1)
         self.assertEqual(len(self.store.list()), 1)
+
+    def test_mode_is_frozen_for_every_item_and_conflicting_retry_is_rejected(self):
+        values = request_values(render_mode="krea2-sampling",
+                                intentions=[dict(name=str(i), intention="Jewels") for i in range(2)])
+        batch = self.service.create(**values)
+        restarted = CreationBatchService(self.store, self.assisted)
+        self.assertEqual(restarted.get(batch.batch_id).config.render_mode, CreationBatchRenderMode.TWO_PASS)
+        self.assertEqual(restarted.create(**values), batch)
+        with self.assertRaises(CreationBatchConflict):
+            restarted.create(**{**values, "render_mode": "krea2-flux-klein"})
+        for _ in range(2):
+            restarted.process_next()
+        for item in restarted.get(batch.batch_id).items:
+            attempt = self.assisted.projects.get(item.project_id).attempt(item.attempt_id)
+            self.assertEqual(attempt.settings.workflow, CreationBatchRenderMode.TWO_PASS.workflow)
+            self.assertEqual(attempt.settings.sampling.preset_id, "moody_beta")
+
+    def test_omitted_and_explicit_flux_mode_share_the_historical_request_digest(self):
+        import hashlib
+        import json
+        values = request_values()
+        batch = self.service.create(**values)
+        legacy_request = {key: value for key, value in values.items() if key != "request_id"}
+        legacy_request.update(recipe_version="6.0.0", language="en", local_inspiration=False, art_style_id=None)
+        legacy_digest = hashlib.sha256(json.dumps(legacy_request, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        self.assertEqual(batch.request_digest, legacy_digest)
+        self.assertEqual(self.service.create(**values, render_mode="krea2-flux-klein"), batch)
+
+    def test_unknown_mode_is_rejected_without_creating_a_batch(self):
+        for mode in ("unknown", "krea2-sampling@1.0.0", None):
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                self.service.create(**request_values(render_mode=mode))
+        self.assertEqual(self.store.list(), ())
+        self.assertEqual(self.assisted.chat_calls, [])
 
     def test_snapshot_settings_and_status_survive_restart_without_new_calls(self):
         batch = self.service.create(**request_values(language="zh"))
@@ -287,7 +324,7 @@ class AssistedBatchIntegrationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 assisted.snapshot_batch_preset(config.preset.preset_id, 99)
 
-    def test_new_batches_use_flux_moody_with_legacy_missing_or_different_source(self):
+    def test_new_batches_use_selected_mode_and_moody_with_legacy_missing_or_different_source(self):
         from panelforge.application.krea2_assisted import Krea2AssistedService
         from panelforge.domain.krea2_batch import Krea2LoraSelection
         from unittest.mock import Mock
@@ -297,8 +334,9 @@ class AssistedBatchIntegrationTests(unittest.TestCase):
         legacy = preset.settings
         alternate = Krea2AssistedSettings(legacy.model_name, legacy.aspect_ratio, 1.0,
             sampling=sampling_from_dict(None, default_preset_id="finish_4"))
-        for source_settings in (None, legacy, alternate):
-            with self.subTest(source=type(source_settings).__name__):
+        cases = [(mode, source) for mode in CreationBatchRenderMode for source in (None, legacy, alternate)]
+        for mode, source_settings in cases:
+            with self.subTest(mode=mode, source=type(source_settings).__name__):
                 assisted = Krea2AssistedService.__new__(Krea2AssistedService)
                 assisted._preset = Mock(return_value=preset)
                 assisted._validate_render_settings = Mock()
@@ -312,10 +350,10 @@ class AssistedBatchIntegrationTests(unittest.TestCase):
                     assisted.list_assistance_recipes = lambda: [{"version": "6.0.0"}]
                     assisted.style_catalog = None
                     store = LocalCreationBatchStore(root)
-                    batch = CreationBatchService(store, assisted).create(**request_values())
+                    batch = CreationBatchService(store, assisted).create(**request_values(render_mode=mode))
                     settings = store.get(batch.batch_id).config.settings
                     self.assertEqual(as_batch_settings(settings), preset.settings)
-                    self.assertEqual(settings.workflow, KREA2_FLUX_KLEIN_WORKFLOW)
+                    self.assertEqual(settings.workflow, mode.workflow)
                     self.assertEqual(settings.sampling.preset_id, "moody_beta")
                     self.assertEqual((settings.sampling.first_pass.steps, settings.sampling.second_pass.steps), (8, 4))
                     for sampling_pass in (settings.sampling.first_pass, settings.sampling.second_pass):
@@ -336,6 +374,7 @@ class AssistedBatchIntegrationTests(unittest.TestCase):
             restored = CreationBatchService(store, assisted).create(**values)
             self.assertEqual(restored, batch)
             self.assertNotIsInstance(restored.config.settings, Krea2AssistedSettings)
+            self.assertEqual(restored.config.render_mode, CreationBatchRenderMode.TWO_PASS)
 
     def test_invalid_new_batch_resources_do_not_fall_back_to_legacy_mode(self):
         from panelforge.application.krea2_assisted import Krea2AssistedService

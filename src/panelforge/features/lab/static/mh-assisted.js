@@ -293,8 +293,6 @@
       const result = await request(`${api}/poses`);
       if (state.picker !== picker || !el("picker").open) return;
       state.poses = result.entries; state.catalog = result.catalog;
-      choices(el("picker-category"), state.catalog.categories || []); choices(el("picker-family"), state.catalog.families || []);
-      choices(el("picker-angle"), state.catalog.angles || [], "", "Tous les angles");
     } else {
       let styles;
       try { styles = (await request(`${artApi}/art-styles`)).styles; }
@@ -310,25 +308,42 @@
     state.picker = {kind, target, projectId:state.project?.id}; state.page = 0;
     el("picker-title").textContent = kind === "pose" ? "Choisir une pose" : "Direction artistique";
     el("picker-search").value = ""; el("picker-grid").replaceChildren(); el("picker-state").textContent = "Chargement…";
+    for (const id of ["picker-category", "picker-family", "picker-angle"]) el(id).replaceChildren(new Option("Tous", ""));
     el("picker-family").hidden = el("picker-angle").hidden = el("picker-source").hidden = kind !== "pose";
     el("picker").showModal();
     try { await loadPickerData(); } catch (error) { el("picker-state").textContent = error.message; }
   }
+  const searchable = value => String(value || "").normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase();
+  function matchesPose(p, query) {
+    const text = searchable(`${p.id} ${p.number} ${p.name} ${p.source_name || ""} ${p.category} ${p.family} ${p.angle}`);
+    return query.split(/\s+/).every(word => text.includes(word));
+  }
+  function syncPoseFilters(query) {
+    const unique = (poses, key) => [...new Set(poses.map(p => p[key]))].sort((a,b) => a.localeCompare(b, "fr"));
+    choices(el("picker-family"), unique(state.poses, "family"), el("picker-family").value, "Toutes les familles");
+    const family = el("picker-family").value;
+    const available = state.poses.filter(p => (!family || p.family === family) && matchesPose(p, query));
+    choices(el("picker-category"), unique(available, "category"), el("picker-category").value, "Toutes les catégories");
+    const category = el("picker-category").value;
+    const angles = new Set(available.filter(p => !category || p.category === category).map(p => p.angle));
+    choices(el("picker-angle"), (state.catalog?.angles || []).filter(angle => angles.has(angle)), el("picker-angle").value, "Tous les angles");
+  }
   function renderPicker() {
     if (!state.picker) return;
-    const isPose = state.picker.kind === "pose", query = el("picker-search").value.trim().toLocaleLowerCase();
+    const isPose = state.picker.kind === "pose", query = searchable(el("picker-search").value.trim());
+    if (isPose) syncPoseFilters(query);
     const category = el("picker-category").value, family = el("picker-family").value, angle = el("picker-angle").value;
     let values;
     if (isPose) {
       const groups = new Map();
       for (const p of state.poses) {
         if ((category && p.category !== category) || (family && p.family !== family) || (angle && p.angle !== angle)) continue;
-        if (query && !`${p.id} ${p.number} ${p.name} ${p.category} ${p.family} ${p.angle}`.toLocaleLowerCase().includes(query)) continue;
+        if (!matchesPose(p, query)) continue;
         if (!groups.has(p.pose_id)) groups.set(p.pose_id, []); groups.get(p.pose_id).push(p);
       }
       values = [...groups.values()];
     } else values = state.styles.filter(s => (!category || s.category === category)
-      && (!query || `${s.name} ${s.display_name || ""} ${s.category}`.toLocaleLowerCase().includes(query)));
+      && (!query || searchable(`${s.name} ${s.display_name || ""} ${s.category}`).includes(query)));
     const pages = Math.max(1, Math.ceil(values.length / 24)); state.page = Math.min(state.page, pages-1);
     el("picker-grid").replaceChildren();
     el("picker-state").textContent = isPose && state.catalog?.state !== "ready"
