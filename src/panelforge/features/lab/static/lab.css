@@ -1518,6 +1518,13 @@ figcaption small { max-width: 70%; overflow: hidden; text-overflow: ellipsis; wh
 .work-queue-settings, .work-queue-history { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .work-queue-settings summary, .work-queue-history summary { cursor: pointer; font-weight: 800; }
 .work-queue-machine-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 14px 0; }
+.work-queue-global-thermal-settings { padding: 14px; margin: 14px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.work-queue-global-thermal-settings h3 { margin: 0 0 5px; color: var(--green); }
+.work-queue-global-thermal-settings p { margin: 7px 0; font-size: .76rem; }
+.work-queue-thermal-alert { padding: 12px; border: 1px solid #b77a25; border-radius: 10px; background: #fff3d6; color: #603d0b; }
+.work-queue-thermal-alert[hidden] { display: none; }
+.work-queue-thermal-alert p { margin: 0 0 8px; }
+.work-queue-background > .work-queue-thermal-alert { margin: 8px 10px; font-size: .75rem; }
 .work-queue-machine-settings > section { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
 .work-queue-machine-settings h3 { margin: 0 0 5px; color: var(--green); }
 .work-queue-machine-settings p { margin: 0; font-size: .76rem; }

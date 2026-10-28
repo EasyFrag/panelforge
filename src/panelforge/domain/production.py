@@ -102,8 +102,15 @@ class WorkSchedulerSettings:
     remote_video_cooldown_seconds: int = 30
     pause_after_failure: bool = False
     history_limit: int = 30
+    global_thermal_pause_enabled: bool = True
+    global_thermal_pause_temperature_c: float = 86.0
 
     def __post_init__(self) -> None:
+        if not isinstance(self.global_thermal_pause_enabled, bool):
+            raise TypeError('global_thermal_pause_enabled must be a boolean')
+        threshold = _finite(self.global_thermal_pause_temperature_c, 'global_thermal_pause_temperature_c')
+        if not 30 <= threshold <= 110:
+            raise ValueError('global_thermal_pause_temperature_c must be between 30 and 110')
         _finite(self.local_cooldown_temperature_c, 'local_cooldown_temperature_c')
         if not 30 <= float(self.local_cooldown_temperature_c) <= 110:
             raise ValueError('local_cooldown_temperature_c must be between 30 and 110')
@@ -141,6 +148,25 @@ class WorkSchedulerSettings:
             or not 5 <= self.history_limit <= 200
         ):
             raise ValueError("history_limit must be between 5 and 200")
+
+
+@dataclass(frozen=True, slots=True)
+class GlobalThermalPause:
+    """Latched incident; cooling or editing settings never clears it implicitly."""
+
+    resource: ComputeResource
+    temperature_c: float
+    threshold_c: float
+    triggered_at: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.resource, ComputeResource):
+            raise TypeError('resource must be a ComputeResource')
+        if not 0 <= _finite(self.temperature_c, 'temperature_c') <= 150:
+            raise ValueError('temperature_c must be between 0 and 150')
+        if not 30 <= _finite(self.threshold_c, 'threshold_c') <= 110:
+            raise ValueError('threshold_c must be between 30 and 110')
+        _text(self.triggered_at, 'triggered_at', 64)
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +215,7 @@ __all__ = [
     "ComputeResource",
     "ComputeResourceState",
     "ComputeResourceStatus",
+    "GlobalThermalPause",
     "ProductionWorkload",
     "ThermalPolicy",
     "ThermalSnapshot",

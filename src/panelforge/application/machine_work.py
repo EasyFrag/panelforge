@@ -15,6 +15,7 @@ from uuid import uuid4
 from panelforge.domain.production import (
     ComputeResource,
     ComputeResourceState,
+    GlobalThermalPause,
     ProductionWorkload,
     ThermalPolicy,
     WorkSchedulerSettings,
@@ -42,6 +43,8 @@ _THERMAL_EVENT_MARKERS = {
 class WorkSchedulerSettingsStore(Protocol):
     def load(self) -> WorkSchedulerSettings: ...
     def save(self, settings: WorkSchedulerSettings) -> WorkSchedulerSettings: ...
+    def load_global_thermal_pause(self) -> GlobalThermalPause | None: ...
+    def save_global_thermal_pause(self, incident: GlobalThermalPause | None) -> None: ...
 
 
 class ThermalHistoryStore(Protocol):
@@ -77,7 +80,7 @@ class MachineWorkCoordinator:
     """PanelForge's single admission authority for both physical machines.
 
     Callers queue before talking to ComfyUI or the LLM server. Each lane is
-    FIFO and non-preemptive; local and remote lanes remain independent.
+    FIFO and non-preemptive; a global thermal latch can block both lanes.
     """
 
     def __init__(
@@ -147,6 +150,13 @@ class MachineWorkCoordinator:
         }
         self._thermal_event_ids: dict[str, str] = {}
         self._thermal_history_error: str | None = None
+        self._global_thermal_pause = (
+            settings_store.load_global_thermal_pause() if settings_store is not None else None
+        )
+        self._global_thermal_pause_dirty = False
+        self._global_thermal_pause_error: str | None = None
+        if self._global_thermal_pause is not None:
+            self.leases.set_global_paused(True)
         if self._thermal_history_store is not None:
             try:
                 self._thermal_history_store.recover_open_events(self._utc_now())
@@ -178,6 +188,9 @@ class MachineWorkCoordinator:
             self._settings = settings
             if len(self._recent) > settings.history_limit:
                 self._recent = self._recent[-settings.history_limit:]
+            if (self._latest_thermal_at is not None
+                    and self._monotonic() - self._latest_thermal_at < _TEMPERATURE_SAMPLE_SECONDS):
+                self._check_global_thermal_pause_locked(self._latest_thermal_snapshot)
         return settings
 
     def start_temperature_sampling(self) -> None:
@@ -220,6 +233,80 @@ class MachineWorkCoordinator:
 
     def resume(self, resource: ComputeResource) -> None:
         self.leases.set_paused(resource, False)
+
+    def resume_global_thermal_pause(self) -> None:
+        """Explicitly clear the latch after a fresh, safe reading of both GPUs."""
+        with self._thermal_read_lock:
+            self._thermal_snapshot(force=True)
+            with self._lock:
+                if self._global_thermal_pause is None:
+                    return
+                if not self._global_thermal_resume_safe_locked():
+                    raise ValueError(
+                        'La reprise exige les deux températures GPU disponibles et sous '
+                        f'{self._settings.global_thermal_pause_temperature_c:g} °C.'
+                    )
+                if self._settings_store is not None:
+                    # Do not release either lane if persisting the acknowledgement fails.
+                    self._settings_store.save_global_thermal_pause(None)
+                self._global_thermal_pause = None
+                self._global_thermal_pause_dirty = False
+                self._global_thermal_pause_error = None
+                self.leases.set_global_paused(False)
+
+    def _global_thermal_resume_safe_locked(self) -> bool:
+        snapshot = self._latest_thermal_snapshot
+        if (snapshot is None or self._latest_thermal_at is None
+                or self._monotonic() - self._latest_thermal_at >= _TEMPERATURE_SAMPLE_SECONDS):
+            return False
+        threshold = self._settings.global_thermal_pause_temperature_c
+        return all(
+            (temperature := self._temperature(snapshot, resource)) is not None
+            and math.isfinite(temperature) and temperature < threshold
+            for resource in ComputeResource
+        )
+
+    def _check_global_thermal_pause_locked(self, snapshot) -> None:
+        settings = self._settings
+        if self._global_thermal_pause is None and settings.global_thermal_pause_enabled:
+            for resource in ComputeResource:
+                temperature = self._temperature(snapshot, resource)
+                if temperature is not None and temperature > settings.global_thermal_pause_temperature_c:
+                    self._global_thermal_pause = GlobalThermalPause(
+                        resource=resource,
+                        temperature_c=float(temperature),
+                        threshold_c=settings.global_thermal_pause_temperature_c,
+                        triggered_at=self._timestamp(),
+                    )
+                    self.leases.set_global_paused(True)
+                    self._global_thermal_pause_dirty = True
+                    break
+        if self._global_thermal_pause_dirty and self._settings_store is not None:
+            try:
+                self._settings_store.save_global_thermal_pause(self._global_thermal_pause)
+            except OSError as error:
+                # The in-process pause remains effective; retry on the next sample.
+                self._global_thermal_pause_error = str(error)[:300]
+            else:
+                self._global_thermal_pause_dirty = False
+                self._global_thermal_pause_error = None
+
+    def _global_thermal_pause_view(self) -> dict[str, object]:
+        with self._lock:
+            incident = self._global_thermal_pause
+            machine = 'GPU local' if incident and incident.resource is ComputeResource.LOCAL_GPU else 'GPU serveur'
+            return {
+                'paused': incident is not None,
+                'incident': asdict(incident) if incident is not None else None,
+                'message': (
+                    f'Pause thermique globale — {machine} à {incident.temperature_c:g} °C '
+                    f'(seuil {incident.threshold_c:g} °C). Les calculs en cours peuvent terminer ; '
+                    'les départs suivants attendent une reprise manuelle.'
+                    if incident is not None else None
+                ),
+                'can_resume': incident is not None and self._global_thermal_resume_safe_locked(),
+                'persistence_error': self._global_thermal_pause_error,
+            }
 
     def enqueue(
         self,
@@ -395,10 +482,9 @@ class MachineWorkCoordinator:
                 self._update_activity(owner_id, status="waiting_safety", stage="Contrôle de la machine")
                 self._wait_for_inter_job_cooldown(requirement, cancelled=cancelled)
                 self._wait_until_safe(resource, cancelled=cancelled, on_thermal=on_thermal)
-                self._update_activity(owner_id, status="running", stage=operation)
+                self._admit_when_unpaused(owner_id, requirement, cancelled=cancelled, on_thermal=on_thermal)
                 self._start_thermal_event(owner_id, requirement)
                 started = True
-                self._sample_active_temperature(resource)
                 try:
                     yield
                 finally:
@@ -422,6 +508,40 @@ class MachineWorkCoordinator:
             raise
         else:
             self._finish(owner_id, "completed")
+
+    def _admit_when_unpaused(
+        self,
+        owner_id: str,
+        requirement: ResourceRequirement,
+        *,
+        cancelled: Callable[[], bool],
+        on_thermal: Callable[[], None] | None,
+    ) -> None:
+        announced = False
+        while True:
+            if cancelled():
+                raise ResourceWaitCancelled()
+            try:
+                snapshot = self._thermal_snapshot(force=True)
+            except Exception:
+                snapshot = None
+            with self._lock:
+                # A lane may already be owned while waiting for a cooldown.
+                # Serialize its final admission with the global thermal latch.
+                thermal_paused = self._global_thermal_pause is not None
+                if not thermal_paused and requirement.resource not in self.leases.paused():
+                    temperature = self._temperature(snapshot, requirement.resource) if snapshot is not None else None
+                    self._update_activity(owner_id, status='running', stage=requirement.operation,
+                                          peak_temperature_c=temperature)
+                    return
+                self._update_activity(owner_id, status='waiting_safety', stage=(
+                    'Pause thermique globale — reprise manuelle requise'
+                    if thermal_paused else 'File en pause — reprise manuelle requise'
+                ))
+            if thermal_paused and not announced and on_thermal is not None:
+                on_thermal()
+                announced = True
+            self._sleep(self.monitor_interval)
 
     def cooldown_while_owned(
         self,
@@ -682,6 +802,7 @@ class MachineWorkCoordinator:
         with self._lock:
             self._latest_thermal_snapshot = snapshot
             self._latest_thermal_at = observed_at
+            self._check_global_thermal_pause_locked(snapshot)
             for resource in ComputeResource:
                 temperature = self._temperature(snapshot, resource)
                 if temperature is None or not math.isfinite(float(temperature)):
@@ -801,10 +922,11 @@ class MachineWorkCoordinator:
         }
 
     def public_status(self) -> dict[str, object]:
+        snapshot = self._thermal_snapshot()
+        global_pause = self._global_thermal_pause_view()
         owners = self.leases.owners()
         waiters = self.leases.waiters()
         paused = self.leases.paused()
-        snapshot = self._thermal_snapshot()
         settings = self.settings
         policy = settings.thermal
         machines: dict[str, object] = {}
@@ -855,6 +977,9 @@ class MachineWorkCoordinator:
                 else policy.stop_temperature_c
             )
             state = (
+                ComputeResourceState.PAUSED.value if global_pause['paused'] and (
+                    activity is None or activity.get('status') != 'running'
+                ) else
                 ComputeResourceState.COOLING.value if thermal_state or cooldown_active else
                 ComputeResourceState.BUSY.value if owner is not None else
                 ComputeResourceState.PAUSED.value if resource in paused else
@@ -862,7 +987,10 @@ class MachineWorkCoordinator:
                 ComputeResourceState.UNAVAILABLE.value if snapshot is not None and temperature is None else
                 ComputeResourceState.IDLE.value
             )
-            if activity is not None and (thermal_state or cooldown_active):
+            if activity is not None and state == ComputeResourceState.PAUSED.value and global_pause['paused']:
+                activity['status'] = 'waiting_safety'
+                activity['stage'] = 'Pause thermique globale — reprise manuelle requise'
+            elif activity is not None and (thermal_state or cooldown_active):
                 activity["status"] = "cooling"
                 activity["stage"] = fixed_operation or "Attente thermique"
             queue = [
@@ -876,7 +1004,9 @@ class MachineWorkCoordinator:
                 "operation": fixed_operation if cooldown_active else owner.requirement.operation if owner else None,
                 "workload": owner.requirement.workload.value if owner else None,
                 "cooldown_remaining_seconds": fixed_remaining,
-                "paused": resource in paused,
+                "paused": resource in paused or global_pause['paused'],
+                "manual_paused": resource in paused,
+                "global_thermal_paused": global_pause['paused'],
                 "active": activity,
                 "queue": queue,
                 "queue_count": len(queue),
@@ -886,6 +1016,7 @@ class MachineWorkCoordinator:
         temperature_history = self._temperature_history_view()
         return {
             'temperature_history': temperature_history,
+            'global_thermal_pause': global_pause,
             "settings": self._settings_dict(settings),
             "policy": asdict(policy),
             "machines": machines,
@@ -1115,6 +1246,8 @@ class MachineWorkCoordinator:
     @staticmethod
     def _settings_dict(settings: WorkSchedulerSettings) -> dict[str, object]:
         return {
+            'global_thermal_pause_enabled': settings.global_thermal_pause_enabled,
+            'global_thermal_pause_temperature_c': settings.global_thermal_pause_temperature_c,
             'local_cooldown_temperature_c': settings.local_cooldown_temperature_c,
             'local_cooldown_seconds': settings.local_cooldown_seconds,
             'remote_non_video_cooldown_temperature_c': settings.remote_non_video_cooldown_temperature_c,

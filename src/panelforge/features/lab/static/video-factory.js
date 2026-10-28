@@ -52,6 +52,8 @@
   const canRetry = item => !item.archived_at && !item.remove_requested && !item.recover_stage &&
     (["failed","cancelled"].includes(item.status) || item.status==="succeeded" && item.delivery?.status==="failed");
   const canArchive = item => !item.archived_at && item.can_archive===true;
+  const canEdit = item => !item.archived_at && !item.remove_requested && !item.recover_stage &&
+    ["queued","succeeded","failed","cancelled"].includes(item.status);
   const assetUrl = id => "/api/assets/" + encodeURIComponent(id) + "/content";
   const selected = () => inventory().filter(item=>state.selected.has(item.id));
   const selection = items => ({ids:items.map(item=>item.id), revisions:Object.fromEntries(items.map(item=>[item.id,item.revision]))});
@@ -382,6 +384,12 @@
     $("select-all").indeterminate=!$("select-all").checked&&visible().some(item=>state.selected.has(item.id));
     for(const id of ["bulk-preset","bulk-settings","launch"])$(id).hidden=!preparation;
     $("cancel").hidden=state.tab!=="production";$("retry").hidden=state.tab!=="results";
+    $("edit").hidden=!["production","results"].includes(state.tab);
+    const editable=items.filter(canEdit),excluded=items.length-editable.length;
+    $("edit").disabled=state.busy||!editable.length;
+    $("edit").textContent="Remettre en préparation"+(editable.length?" ("+editable.length+")":"");
+    $("edit-help").hidden=$("edit").hidden||!excluded;
+    $("edit-help").textContent=excluded+" fiche"+(excluded>1?"s":"")+" en cours de traitement ou de suppression : retour indisponible pour le moment.";
     $("archive").hidden=state.tab!=="results";$("restore").hidden=state.tab!=="archives";
     for(const id of ["up","down"])$(id).hidden=!["preparation","production"].includes(state.tab);
     for(const option of $("filter").options){
@@ -439,7 +447,7 @@
     const config=item.config,disabled=item.status!=="preparation"?"disabled":"";
     $("inspector").innerHTML='<div class="vf-inspector-title"><h2>'+titleMarkup(item)+'</h2><button type="button" data-vf-action="duplicate">Dupliquer</button></div><p class="vf-source">'+escape(item.source.group||({image:"Image Lab",h3:"H3",ref2v:"REF2V",session:"Parcours"}[item.source.kind]||"Source"))+' <button type="button" data-vf-source>Ouvrir la source</button></p>'+
       (item.issues.length?'<p class="vf-errors">'+item.issues.map(escape).join("<br>")+"</p>":"")+
-      '<div class="vf-inspector-actions">'+(!item.archived_at&&item.status!=="preparation"&&item.status!=="active"?'<button type="button" data-vf-action="edit">Modifier · remettre en préparation</button>':"")+
+      '<div class="vf-inspector-actions">'+(canEdit(item)?'<button type="button" data-vf-action="edit">Modifier · remettre en préparation</button>':"")+
       '<button type="button" class="vf-remove" data-vf-action="remove" '+(item.remove_requested?'disabled':"")+'>'+(item.remove_requested?"Suppression en cours…":"Supprimer")+'</button>'+
       (item.archived_at?'<button type="button" data-vf-action="restore">Restaurer dans Résultats</button>':archiveButton(item,'data-vf-action="archive"'))+
       (canRetry(item)?'<button type="button" data-vf-action="retry">Reprendre la chaîne</button>':"")+
@@ -501,6 +509,12 @@
     if(action==="remove")$("message").textContent="Suppression de "+fresh.length+" fiche"+(fresh.length>1?"s":"")+" en cours…";
     const result=await api("/actions/"+action,"POST",selection(fresh));
     accept(result);
+    if(action==="edit"){
+      state.tab="preparation";state.offset=0;$("filter").value="all";
+      state.selected=new Set(fresh.map(item=>item.id));state.focus=fresh[0]?.id||null;state.detail=null;
+      await reload(true);
+      $("message").textContent=fresh.length+" fiche"+(fresh.length>1?"s remises":" remise")+" en préparation. Réglages et résultats existants conservés.";
+    }
     if(action==="remove"){
       if(result.items){
         const remaining=new Set(inventory().map(item=>item.id)),removed=fresh.filter(item=>!remaining.has(item.id)).length;
@@ -568,7 +582,11 @@
   document.querySelector('[data-lab-view="video-factory"]')?.addEventListener("click",()=>refresh());
   $("refresh").onclick=()=>refresh();
   $("filter").onchange=()=>busy(async()=>{state.offset=0;state.selected.clear();await reload();});
-  $("results-sort").onchange=event=>busy(async()=>{state.resultSort=event.target.value==="newest"?"newest":"chronological";state.offset=0;await reload();});
+  $("results-sort").onchange=event=>{
+    // busy() redraws the toolbar from state, so capture the choice first.
+    const sort=event.target.value==="newest"?"newest":"chronological";
+    busy(async()=>{state.resultSort=sort;state.offset=0;await reload();});
+  };
   $("select-all").onchange=event=>{visible().forEach(item=>event.target.checked?state.selected.add(item.id):state.selected.delete(item.id));render();};
   for(const [id,direction] of [["page-previous",-1],["page-next",1]]) {
     if($(id))$(id).onclick=()=>busy(async()=>{state.offset=Math.max(0,state.offset+direction*state.limit);await reload();});
@@ -650,6 +668,7 @@
   $("launch").onclick=()=>busy(async()=>{await saveDraft();accept(await api("/launch","POST",selection(selected())));state.tab="production";state.offset=0;state.selected.clear();await reload();});
   $("archive").onclick=()=>busy(()=>itemAction("archive"));
   $("restore").onclick=()=>busy(()=>itemAction("restore"));
+  $("edit").onclick=()=>busy(()=>itemAction("edit",selected().filter(canEdit)));
   $("remove").onclick=()=>busy(()=>itemAction("remove"));
   $("cancel").onclick=()=>busy(()=>itemAction("cancel"));
   $("retry").onclick=()=>busy(()=>resumeChain(selected()));

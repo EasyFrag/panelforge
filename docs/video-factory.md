@@ -3,6 +3,25 @@
 Implémentation du 25 septembre 2026 dans le checkout `D:\Code\panelforge-krea2-flux`, branche `feature/video-factory-2026-09-25`.
 
 
+## Retour en préparation par sélection (27 octobre 2026)
+
+Dans **Production** et **Résultats**, sélectionner les fiches puis cliquer sur
+**Remettre en préparation (N)**. La sélection peut couvrir plusieurs pages.
+Le nombre affiché correspond aux fiches disponibles : celles dont une étape
+est active, en reprise ou en suppression sont exclues, avec un compteur visible.
+Si une étape démarre entre l’affichage et le clic, le serveur refuse le lot sans
+déplacement partiel ; actualiser la liste avant de recommencer.
+
+Les fiches déplacées restent sélectionnées dans **Préparation**, où **Réglages
+du lot** et le choix de preset sont disponibles. Leur configuration, les étapes
+déjà terminées et leurs résultats sont conservés ; une modification ultérieure
+invalide uniquement les étapes concernées, selon les règles habituelles.
+
+**Annuler la production** arrête les traitements sélectionnés et conserve les
+fiches dans **Résultats**. **Supprimer la sélection** retire les fiches de l’Usine,
+après l’arrêt des étapes actives si nécessaire ; les fichiers déjà produits
+restent conservés.
+
 ## Preset Auto (22 octobre 2026)
 
 **Auto** utilise une image comme première frame et prépare un unique plan continu

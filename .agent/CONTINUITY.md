@@ -1,5 +1,77 @@
 # CONTINUITY
 
+## Cadrage 2026-10-28 — création MiniMax avec références de poses
+
+### Goal
+- Aligner le périmètre d’un atelier de création d’images MiniMax reprenant l’interface de Création assistée, avec maintien des presets, de la langue et des directions artistiques, et ajout d’un sélecteur de poses comparable à celui des directions artistiques. L’utilisateur demande un cadrage avant implémentation ; vidéos explicitement exclues.
+
+### Current state
+- Lecture de l’existant : Création assistée comprend intention/référence, choix du LLM, directions artistiques, conversation, prompt éditable, réglages, historique des projets et essais. Les recettes, presets de rendu et catalogues de modèles KREA ne sont pas directement transposables à MiniMax.
+- Clarification utilisateur du 28/10/2026 : les presets, le choix de langue et les directions artistiques doivent rester dans cette V1. Conserver l’usage des presets personnels de style, le choix de langue du prompt anglais/chinois et le sélecteur de directions artistiques ; la pose s’ajoute à ces fonctions. La partie artistique des presets est à reprendre, avec un prompteur et des réglages de rendu adaptés à MiniMax. Le contrat actuel `domain/krea2_style_presets.py` associe prompt/image/langue/direction à des `Krea2BatchSettings` : ne pas appliquer implicitement les checkpoints, LoRA et réglages techniques KREA au moteur MiniMax, ni utiliser cette différence comme motif pour supprimer ou différer les presets/langues/directions de la V1.
+- Le moteur image existe déjà dans Modifier avec Minimax : `docs/design/minimax-edit-guide.md`, `application/minimax_edit.py`, `infrastructure/presets/minimax_edit.py` et `workflows/image.edit/minimax-h3-still/1.3.0/manifest.json`. Le workflow H3 hybride avec Fizgig Still produit un PNG, accepte jusqu’à neuf références et déclare `text_to_image: false`. L’adaptateur exige au moins une image. Le mode composition permet une création sans image source à préserver ; une pose peut être cette référence. La fidélité aux poses de la galerie n’a pas été testée.
+- Proposition à discuter : onglet « Création MiniMax » dans Image Lab ; parcours création/conversation/prompt/rendus et historique familier ; direction artistique et pose indépendantes ; réglages propres au moteur MiniMax. Une seule pose et un angle actifs à la fois, facultatifs si une autre référence de rendu est présente ; choix, aperçu, remplacement et retrait. Le prompt précise que la pose fournit la posture et le point de vue, sans reprendre automatiquement l’apparence grise du mannequin ni son fond.
+- Choix utilisateur confirmé le 28/10/2026 : commencer avec le catalogue de https://ai-pose-gallery.pages.dev/ dans le popup. Proposition UX : vignettes, recherche, catégories et choix d’angle, avec une pose/un angle actifs à la fois. Prévoir une installation locale personnelle du catalogue et des images, hors code redistribué, et conserver les identités, images et rôles des références avec chaque essai. L’import manuel de poses n’est pas le point de départ demandé. Aucune collecte effectuée ; le mécanisme d’installation reste à examiner lors de la préparation technique.
+- Site consulté : https://ai-pose-gallery.pages.dev/ ; mannequins sans visage, plusieurs angles et téléchargement PNG. Les conditions affichées permettent l’usage comme référence et la création commerciale, mais interdisent redistribution/republication/revente des images elles-mêmes. Ne pas prévoir leur inclusion dans le code ou un catalogue redistribué ; privilégier des références importées pour l’usage personnel.
+- Limites V1 proposées : images fixes, un choix de pose par génération ; batch CSV, séquences vidéo, éditeur de squelette/3D et affectation de poses distinctes à plusieurs personnages différés. Les réglages techniques et recettes KREA nécessitent une adaptation au moteur MiniMax ; les presets de style restent explicitement inclus.
+- Choix utilisateur confirmé le 28/10/2026 : « Au moins une référence en V1 ». Une pose seule, une autre référence seule, ou leur combinaison permet la création ; le texte seul est hors périmètre. Ce choix ne constitue pas une demande d’implémentation ni une validation implicite des autres propositions.
+- Aucun code applicatif, réglage, service, appel LLM, génération ou test modifié/lancé. Seule cette note de continuité est ajoutée. Les lectures ont utilisé l’exécution autorisée hors sandbox après échec de démarrage du terminal isolé.
+
+### Next steps
+- Restituer le périmètre de création MiniMax avec les choix confirmés : au moins une référence, catalogue de poses du site dès la V1, et maintien des presets, de la langue et des directions artistiques. La demande reste un alignement de scope ; aucune implémentation applicative engagée.
+- Pour la préparation technique ultérieure, examiner la structure réelle du catalogue et ses images/angles, définir un manifeste explicite et une installation locale personnelle, puis préciser les composants communs de Création assistée à réutiliser et les réglages MiniMax. Ne pas présenter l’intégration ou la fidélité des poses comme déjà qualifiées.
+- Lors d’une implémentation ultérieure, réutiliser le moteur image et les composants pertinents, conserver les contrats/identités explicites et les nœuds ComfyUI dans les manifestes versionnés. Tests laissés à l’utilisateur et aucun rendu de qualification sans demande explicite.
+
+## Correctif 2026-10-27 — sélecteur de tri des résultats Usine
+
+### Goal
+- Terminé : rétablir le choix « Plus récents d’abord » dans Résultats, qui revenait à « Ordre habituel » sans modifier les lignes.
+
+### Current state
+- Cause identifiée dans le gestionnaire `results-sort` : `busy()` appelle immédiatement `renderToolbar()`, qui remet le menu à la valeur de `state.resultSort`, avant que le callback ne lise `event.target.value`. Le callback relisait donc l’ancien choix et envoyait encore `sort=chronological`.
+- Correction ciblée : capturer la valeur choisie avant d’entrer dans `busy()`, puis affecter l’état et recharger la première page. Tri serveur par date de fin, regroupement des scènes, sélection, protection des réponses périmées et retour à la vue précédente en cas d’échec inchangés. Aucun ordre de production persistant modifié.
+- Scénario navigateur ajouté avec 55 résultats et réponses paginées réelles du service : changement depuis la seconde page, valeur `sort=newest` transmise, nouvelle page complète malgré une révision serveur inchangée, ordre des lignes, sélection conservée, actualisation, erreur puis reprise explicite et retour à l’ordre habituel. Test NON exécuté selon AGENTS.md. Syntaxe du module Python, du script applicatif et des deux fragments navigateur vérifiée sans exécution ; espaces des ajouts contrôlés.
+- Trois fichiers synchronisés vers `D:/Code/panelforge-krea2-flux`, avec sauvegardes et vérification des empreintes initiales/finales : JS Usine, index HTML (version `20261027.results-sort1`) et test navigateur. Preuves dans `.agent/diagnostics/factory-results-sort-20261027/`. Aucun service redémarré, test lancé, appel LLM, génération, mutation de production, commit ou push effectué.
+
+### Next steps
+- L’utilisateur redémarre le Lab au moment compatible avec ses productions puis recharge la page pour charger le nouvel instantané d’assets.
+- Tests laissés à l’utilisateur : `python -m unittest tests.test_factory_views_browser tests.test_factory_views`. Aucun succès fonctionnel navigateur revendiqué avant leur exécution.
+
+## Implémentation 2026-10-27 — retour groupé de l’Usine en préparation
+
+### Goal
+- Terminé : rendre l’action individuelle « Modifier · remettre en préparation » disponible sur une sélection multiple, et clarifier la différence entre annuler une production et supprimer une fiche.
+
+### Current state
+- Bouton « Remettre en préparation (N) » dans Production et Résultats. Réutilise le contrat groupé existant `POST /api/video-factory/actions/edit`, avec les identifiants et révisions de l’inventaire complet, y compris les sélections sur plusieurs pages. Aucun nouveau chemin backend ni lancement de traitement.
+- Le compteur et l’action portent sur les fiches disponibles. Étapes actives, reprises en cours et suppressions sont exclues avec un compteur visible avant le clic ; le bouton individuel utilise le même critère. Les contrôles atomiques existants du serveur restent en place si une étape démarre ou une révision change entre l’affichage et l’action. Double clic bloqué pendant l’envoi ; une erreur conserve la sélection.
+- Après succès, ouverture de Préparation avec les fiches déplacées encore sélectionnées et accès aux réglages du lot. Configuration, étapes déjà obtenues et résultats conservés selon le comportement existant. Les archives restent à restaurer dans Résultats avant modification.
+- « Annuler la sélection » devient « Annuler la production » : arrêt du traitement avec conservation de la fiche dans Résultats. Info-bulle de suppression : retrait de la fiche de l’Usine, fichiers déjà produits conservés. Documentation Usine actualisée ; script versionné `20261027.bulk-preparation1`.
+- Deux tests service ajoutés pour la conservation du travail, la sortie de file et le refus atomique en cas d’activité/reprise/révision périmée. Un scénario navigateur ajouté pour sélection interpages, exclusions visibles, compte exact, double clic, conflit puis reprise explicite et sélection en Préparation. Tests NON exécutés selon AGENTS.md. Syntaxe des deux modules Python, du JS applicatif et des deux fragments navigateur vérifiée sans exécution ; identifiants HTML et espaces des ajouts vérifiés.
+- Cinq fichiers synchronisés vers `D:/Code/panelforge-krea2-flux`, versions initiales identiques, sauvegardes et empreintes finales vérifiées. Diagnostic : `.agent/diagnostics/factory-bulk-preparation-20261027/` (`before/`, `lab-before/`, `baseline.json`, `review.diff`, `static-checks.json`, `sync-plan.json`, `sync-final.json`). Aucun test, appel LLM, génération, modification runtime, redémarrage, commit ou push effectué.
+
+### Next steps
+- L’utilisateur redémarre le Lab au moment compatible avec ses productions puis recharge la page : les assets sont figés par instance et un simple rechargement avant redémarrage ne charge pas ce correctif.
+- Tests à lancer par l’utilisateur : `python -m unittest tests.test_video_factory tests.test_factory_views_browser tests.test_video_factory_web`. Aucun succès fonctionnel ou navigateur revendiqué avant leur exécution.
+
+## Implémentation 2026-10-26 — pause thermique globale à 86 °C
+
+### Goal
+- Implémentation locale terminée : ajouter la pause thermique globale convenue au popup des traitements. Le 27/10/2026, l’utilisateur choisit de conserver la sauvegarde avant modification uniquement en local ; la publication GitHub n’est plus en attente.
+
+### Current state
+- Sauvegarde avant modification : commit `e22ecd0b28afedee5bb6f238479acb29cfd6058f`, branche locale `snapshots/pre-thermal-pause-2026-10-26`, parent `225a736677d56b69b009403645236e47a6b8edb8`. Capture par index isolé, 15 fichiers ajoutés/modifiés depuis la sauvegarde précédente, dix fichiers Python vérifiés syntaxiquement ; source et index initial contrôlés, configuration privée, médias et runtime exclus. Après le refus automatique initial du push, l’utilisateur a répondu « Conserver la sauvegarde locale » le 27/10/2026. Branche locale et SHA revérifiés ; aucun push effectué ni autorisé par cette réponse.
+- `WorkSchedulerSettings` expose `global_thermal_pause_enabled` (vrai par défaut) et `global_thermal_pause_temperature_c` (86 °C). Les anciens fichiers prennent ces défauts sans perdre leurs cooldowns ; les anciens clients HTTP omettant ces champs conservent leur valeur courante. Validation booléenne stricte et seuil fini entre 30 et 110 °C.
+- Un GPU strictement au-dessus du seuil déclenche un verrou commun aux deux files. Le sampler backend existant fonctionne sans navigateur ; le contrôle final avant admission couvre aussi les tâches déjà propriétaires d’une file mais encore en attente de sécurité/cooldown. Les calculs déjà admis terminent normalement ; aucune annulation, commande moteur ou extinction. Ordre FIFO et pauses manuelles conservés. Le seuil global surveille les deux GPU indépendamment des cases de cooldown locales/distantes.
+- Incident typé et persistant dans `workspace/system/work-thermal-pause.json`, indépendant des paramètres et restauré au démarrage. Le refroidissement, les reprises individuelles et les changements de paramètres ne libèrent pas le verrou. `POST /api/work-scheduler/thermal-pause/resume` exige une lecture fraîche des deux GPU strictement sous le seuil courant (409 sinon), puis persiste l’acquittement avant libération. Une erreur d’écriture garde la pause, est signalée et est retentée sur les mesures suivantes.
+- Popup : bloc commun au-dessus de Local/Serveur, activation/seuil, état, alerte avec GPU/température, bouton de reprise. Alerte maintenue dans le suivi flottant, boutons individuels désactivés pendant l’incident, progression du calcul en cours conservée. JS/CSS référencés en `20261026.global-thermal1` ; documentation de l’ordonnanceur actualisée.
+- Onze tests dédiés ajoutés, deux contrats HTTP ajoutés et scénario navigateur étendu ; ancien test du cooldown distant isolé de la nouvelle protection. Tests NON exécutés selon AGENTS.md. Syntaxe de neuf fichiers Python et du script JS/scénario navigateur vérifiée sans invocation applicative ; espaces des ajouts contrôlés.
+- Treize fichiers applicatifs, documentation et tests transférés à `D:/Code/panelforge-krea2-flux` après sauvegardes et contrôle des empreintes. Aucun service redémarré, appel LLM, génération ni changement de paramètres runtime. L’instantané frontend et le backend actuels restent inchangés jusqu’au redémarrage choisi par l’utilisateur. Diagnostics : `.agent/diagnostics/thermal-pause-20261026/` (sauvegarde, diff limité, contrôles statiques, plan et preuve de synchronisation).
+
+### Next steps
+- Conserver la branche de sauvegarde locale selon le choix explicite du 27/10/2026. Ne publier cette sauvegarde que sur une nouvelle demande explicite ; les changements thermiques restent postérieurs à cette sauvegarde.
+- Tests à lancer par l’utilisateur : `python -m unittest tests.test_global_thermal_pause tests.test_machine_work tests.test_lab_web tests.test_work_queue_browser`. Aucun succès fonctionnel revendiqué avant leur exécution.
+- L’utilisateur redémarre le Lab au moment compatible avec ses productions puis recharge la page pour activer le backend et son instantané d’assets. Cette V1 ne suspend pas un calcul GPU en plein rendu, ne crée pas de politique globale sur perte de télémétrie et n’installe pas de watchdog autonome distant ; l’extinction de fin de batch reste différée.
+
 ## Skill 2026-10-26 — rédaction des intentions lips
 
 ### Goal

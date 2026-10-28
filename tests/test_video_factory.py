@@ -219,6 +219,40 @@ class FactoryServiceTest(unittest.TestCase):
         self.assertEqual(next_steps(item), ["video"])
         self.assertTrue(item["runtime"]["explicit_retry"])
 
+    def test_bulk_return_to_preparation_preserves_work_and_leaves_queue(self):
+        first, second = self.receive("A", final=True), self.receive("B", final=True)
+        self.service.launch(*self.select(first, second))
+        before = deepcopy(self.store.value["items"])
+        result = self.service.action("edit", *self.select(first, second), compact=True)
+        self.assertTrue(result["compact"])
+        self.assertEqual(result["counts"]["preparation"], 2)
+        self.assertEqual(result["counts"]["production"], 0)
+        for previous, item in zip(before, self.store.value["items"]):
+            self.assertEqual(item["status"], "preparation")
+            self.assertFalse(item["cancel_requested"])
+            for key in ("id", "config", "source", "steps", "runtime", "history", "launch_snapshot"):
+                self.assertEqual(item[key], previous[key])
+        self.service.dispatch()
+        self.assertFalse(DeferredThread.pending)
+        self.assertFalse(self.adapter.calls)
+
+    def test_bulk_return_rejects_active_recovery_or_stale_selection_atomically(self):
+        first, second = self.receive("A", final=True), self.receive("B", final=True)
+        self.service.launch(*self.select(first, second))
+        stale = self.select(first, second)
+        self.service.dispatch()
+        for chosen in (stale, self.select(first, second)):
+            before = deepcopy(self.service._state)
+            with self.assertRaises(FactoryConflict):
+                self.service.action("edit", *chosen)
+            self.assertEqual(self.service._state, before)
+        self.service._workers.clear()
+        self.service._get(first)["recover_stage"] = "video"
+        before = deepcopy(self.service._state)
+        with self.assertRaises(FactoryConflict):
+            self.service.action("edit", *self.select(first, second))
+        self.assertEqual(self.service._state, before)
+
     def test_restart_reconciles_child_even_with_pause_and_busy_machine(self):
         identity = self.receive(final=True)
         self.service.launch(*self.select(identity)); self.service.dispatch()

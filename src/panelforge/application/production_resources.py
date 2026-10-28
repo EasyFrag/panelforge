@@ -55,6 +55,7 @@ class ResourceLeaseManager:
             resource: [] for resource in ComputeResource
         }
         self._paused: set[ComputeResource] = set()
+        self._global_paused = False
         self._wait_interval = wait_interval
 
     def owners(self) -> dict[ComputeResource, ResourceOwner]:
@@ -82,6 +83,14 @@ class ResourceLeaseManager:
                 self._paused.add(resource)
             else:
                 self._paused.discard(resource)
+            self._condition.notify_all()
+
+    def set_global_paused(self, paused: bool) -> None:
+        """Block both lanes atomically, preserving their independent manual pauses."""
+        if not isinstance(paused, bool):
+            raise TypeError('paused must be a boolean')
+        with self._condition:
+            self._global_paused = paused
             self._condition.notify_all()
 
     def reserve(self, job_id: str, requirement: ResourceRequirement) -> None:
@@ -174,6 +183,7 @@ class ResourceLeaseManager:
                     if (
                         resource not in self._owners
                         and resource not in self._paused
+                        and not self._global_paused
                         and self._waiters[resource][0].token is waiter.token
                     ):
                         self._waiters[resource].pop(0)

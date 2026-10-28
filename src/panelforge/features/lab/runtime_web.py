@@ -32,6 +32,8 @@ class WorkSchedulerSettingsBody(BaseModel):
     remote_video_cooldown_seconds: int = Field(default=30, ge=0, le=3_600, strict=True)
     pause_after_failure: bool = False
     history_limit: int = Field(default=30, ge=5, le=200, strict=True)
+    global_thermal_pause_enabled: bool | None = Field(default=None, strict=True)
+    global_thermal_pause_temperature_c: float | None = Field(default=None, ge=30, le=110, allow_inf_nan=False)
 
 
 def _comfy_active_operations(queue: Any) -> list[str]:
@@ -297,11 +299,31 @@ def runtime_router(*, comfy_runtime: Any | None, h3_render: H3RenderService | No
                 remote_video_cooldown_seconds=body.remote_video_cooldown_seconds,
                 pause_after_failure=body.pause_after_failure,
                 history_limit=body.history_limit,
+                global_thermal_pause_enabled=(
+                    body.global_thermal_pause_enabled if body.global_thermal_pause_enabled is not None
+                    else machine_work.settings.global_thermal_pause_enabled
+                ),
+                global_thermal_pause_temperature_c=(
+                    body.global_thermal_pause_temperature_c if body.global_thermal_pause_temperature_c is not None
+                    else machine_work.settings.global_thermal_pause_temperature_c
+                ),
             )
             machine_work.update_settings(settings)
             return machine_work.public_status()["settings"]
         except (OSError, TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @router.post("/api/work-scheduler/thermal-pause/resume")
+    def resume_global_thermal_pause() -> dict[str, object]:
+        if machine_work is None:
+            raise HTTPException(status_code=503, detail="Ordonnanceur global indisponible.")
+        try:
+            machine_work.resume_global_thermal_pause()
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (OSError, RuntimeError) as error:
+            raise HTTPException(status_code=503, detail="Impossible de vérifier ou d’enregistrer la reprise thermique.") from error
+        return machine_work.public_status()
 
     @router.post("/api/work-scheduler/{resource}/pause")
     def pause_work_scheduler(resource: str) -> dict[str, object]:

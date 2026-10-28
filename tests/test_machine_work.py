@@ -105,8 +105,11 @@ class MachineWorkCoordinatorTest(unittest.TestCase):
             ThermalSnapshot(local_temperature_c=40, remote_temperature_c=39),
         ])
         coordinator = MachineWorkCoordinator(thermal_monitor=monitor,
-            policy=ThermalPolicy(stop_temperature_c=85, resume_temperature_c=40, cooldown_seconds=0,
-                                 pause_when_unavailable=False), monitor_interval=.01, sleep=lambda _: None)
+            settings=WorkSchedulerSettings(
+                thermal=ThermalPolicy(stop_temperature_c=85, resume_temperature_c=40, cooldown_seconds=0,
+                                      pause_when_unavailable=False),
+                global_thermal_pause_enabled=False,
+            ), monitor_interval=.01, sleep=lambda _: None)
         with coordinator.lease("video", ComputeResource.REMOTE_GPU, ProductionWorkload.VIDEO_RENDER, "H3"):
             self.assertEqual(coordinator.public_status()["machines"]["remote_gpu"]["state"], "busy")
 

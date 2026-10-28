@@ -933,6 +933,53 @@ class LabWebTest(unittest.TestCase):
             resumed = client.post("/api/work-scheduler/local_gpu/resume").json()
             self.assertFalse(resumed["machines"]["local_gpu"]["paused"])
 
+    def test_global_thermal_pause_http_requires_safe_explicit_resume(self):
+        from panelforge.domain.production import ThermalSnapshot
+
+        readings = [ThermalSnapshot(local_temperature_c=50, remote_temperature_c=87)]
+        coordinator = MachineWorkCoordinator(
+            thermal_monitor=SimpleNamespace(snapshot=lambda: readings[0]),
+            settings_store=LocalWorkSchedulerSettings(self.temporary_directory.name),
+        )
+        with TestClient(create_app(self.runner, machine_work=coordinator)) as client:
+            status = client.get('/api/work-scheduler/status').json()
+            self.assertTrue(status['global_thermal_pause']['paused'])
+            self.assertTrue(all(machine['paused'] for machine in status['machines'].values()))
+            self.assertEqual(client.post('/api/work-scheduler/thermal-pause/resume').status_code, 409)
+            status = client.post('/api/work-scheduler/local_gpu/resume').json()
+            self.assertTrue(status['global_thermal_pause']['paused'])
+            readings[0] = ThermalSnapshot(local_temperature_c=50, remote_temperature_c=None)
+            self.assertEqual(client.post('/api/work-scheduler/thermal-pause/resume').status_code, 409)
+            readings[0] = ThermalSnapshot(local_temperature_c=50, remote_temperature_c=50)
+            coordinator._thermal_snapshot(force=True)
+            self.assertTrue(client.get('/api/work-scheduler/status').json()['global_thermal_pause']['paused'])
+            client.post('/api/work-scheduler/remote_gpu/pause')
+            resumed = client.post('/api/work-scheduler/thermal-pause/resume')
+            self.assertEqual(resumed.status_code, 200, resumed.text)
+            self.assertFalse(resumed.json()['global_thermal_pause']['paused'])
+            self.assertFalse(resumed.json()['machines']['local_gpu']['paused'])
+            self.assertTrue(resumed.json()['machines']['remote_gpu']['paused'])
+
+    def test_global_thermal_settings_validate_and_survive_older_client_updates(self):
+        store = LocalWorkSchedulerSettings(self.temporary_directory.name)
+        coordinator = MachineWorkCoordinator(settings_store=store)
+        with TestClient(create_app(self.runner, machine_work=coordinator)) as client:
+            settings = client.get('/api/work-scheduler/settings').json()
+            self.assertTrue(settings['global_thermal_pause_enabled'])
+            self.assertEqual(settings['global_thermal_pause_temperature_c'], 86)
+            settings.update(global_thermal_pause_enabled=False, global_thermal_pause_temperature_c=84)
+            self.assertEqual(client.put('/api/work-scheduler/settings', json=settings).status_code, 200)
+            self.assertFalse(store.load().global_thermal_pause_enabled)
+            self.assertEqual(store.load().global_thermal_pause_temperature_c, 84)
+            settings.pop('global_thermal_pause_enabled')
+            settings.pop('global_thermal_pause_temperature_c')
+            updated = client.put('/api/work-scheduler/settings', json=settings)
+            self.assertEqual(updated.status_code, 200, updated.text)
+            self.assertFalse(updated.json()['global_thermal_pause_enabled'])
+            self.assertEqual(updated.json()['global_thermal_pause_temperature_c'], 84)
+            for invalid in ({'global_thermal_pause_enabled': 1}, {'global_thermal_pause_temperature_c': 111}):
+                self.assertEqual(client.put('/api/work-scheduler/settings', json={**settings, **invalid}).status_code, 422)
+
     def test_runtime_status_reports_non_production_comfy_and_llm_activity(self):
         self.comfy_runtime.running = (
             SimpleNamespace(client_id="panelforge-krea2-assisted-test"),

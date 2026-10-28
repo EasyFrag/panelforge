@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PanelForge Lab</title>
-  <link rel="stylesheet" href="/static/lab.css?v=20261022.patch1">
+  <link rel="stylesheet" href="/static/lab.css?v=20261026.global-thermal1">
   <script src="/static/lab.js?v=20260929.storyv2" defer></script>
   <script src="/static/network-mode.js?v=20260928.1" defer></script>
   <script src="/static/instance-info.js?v=20261022.patch1" defer></script>
-  <script src="/static/work-queue.js?v=20261001.thermal-scale1" defer></script>
+  <script src="/static/work-queue.js?v=20261026.global-thermal1" defer></script>
   <script src="/static/workshop-loader.js?v=1" defer></script>
   <script src="/static/lab-core.js?v=20261026.creationbatch1" defer></script>
   <link rel="stylesheet" href="/static/stories.css?v=20260927.editions1">
@@ -66,7 +66,7 @@
   <link rel="stylesheet" href="/static/video-factory.css?v=20261026.pages1">
   <link rel="stylesheet" href="/static/video-factory-monitor.css?v=20260928.ready1">
   <script src="/static/video-factory-monitor.js?v=20261026.visible1" defer></script>
-  <script src="/static/video-factory.js?v=20261026.pages1" defer></script>
+  <script src="/static/video-factory.js?v=20261027.results-sort1" defer></script>
   <link rel="stylesheet" href="/static/image-transitions.css?v=20261009.presets1">
   <template data-lab-script="image-transition-references.js"><script src="/static/image-transition-references.js?v=20261009.presets1" defer></script></template>
   <template data-lab-script="image-transitions.js"><script src="/static/image-transitions.js?v=20261009.presets1" defer></script></template>
@@ -393,8 +393,11 @@
       <button id="vf-up" type="button" title="Remonter la sélection">↑ Priorité</button><button id="vf-down" type="button" title="Descendre la sélection">↓</button>
       <button id="vf-launch" type="button" class="factory-button">Lancer la sélection</button>
       <button id="vf-archive" type="button" hidden>Archiver la sélection</button><button id="vf-restore" type="button" hidden>Restaurer dans Résultats</button>
-      <button id="vf-remove" type="button" class="vf-remove">Supprimer la sélection</button>
-      <button id="vf-cancel" type="button">Annuler la sélection</button><button id="vf-retry" type="button">Reprendre la chaîne</button>
+      <button id="vf-edit" type="button" hidden title="Retirer de la production pour modifier les réglages. Les résultats existants sont conservés." aria-describedby="vf-edit-help">Remettre en préparation</button>
+      <button id="vf-cancel" type="button" title="Arrêter les traitements sélectionnés et conserver leurs fiches dans Résultats.">Annuler la production</button>
+      <button id="vf-remove" type="button" class="vf-remove" title="Retirer les fiches sélectionnées de l’Usine. Les fichiers déjà produits sont conservés.">Supprimer la sélection</button>
+      <button id="vf-retry" type="button">Reprendre la chaîne</button>
+      <small id="vf-edit-help" role="status" hidden></small>
     </div>
     <div class="vf-layout"><section class="vf-panel vf-list" aria-label="Traitements">
       <div class="vf-table-wrap"><table><thead><tr><th scope="col">Ordre</th><th scope="col">Vidéo / source</th><th scope="col">Plan</th><th scope="col">Prompt</th><th scope="col">Vidéo</th><th scope="col">DLSS</th><th scope="col">Texte IG</th><th scope="col">État</th></tr></thead><tbody id="vf-rows"></tbody></table></div>

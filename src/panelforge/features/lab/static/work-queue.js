@@ -11,6 +11,7 @@
   };
   let status = null;
   let saving = false;
+  let resumingThermalPause = false;
   let notices = [];
   let thermalHistory24h = null;
   let thermalHistoryLoading = false;
@@ -42,8 +43,13 @@
       <div><small>ORDONNANCEUR PANELFORGE</small><h2>Traitements</h2></div>
       <button type="button" data-close aria-label="Fermer">×</button>
     </div>
-    <p class="muted">Une tâche au maximum par machine. Les files locale et distante restent indépendantes.</p>
+    <p class="muted">Une tâche au maximum par machine. La pause thermique globale suspend les nouveaux départs sur les deux machines.</p>
     <p data-error class="error-text" role="alert"></p>
+    <section class="work-queue-thermal-alert" data-global-thermal-alert hidden role="status">
+      <p data-global-thermal-message></p>
+      <p class="muted" data-global-thermal-resume-help></p>
+      <button type="button" data-resume-global-thermal>Reprendre les traitements</button>
+    </section>
     <div class="work-queue-lanes" data-lanes></div>
     <section class="work-queue-thermal-history">
       <div class="work-queue-thermal-history-head">
@@ -62,6 +68,18 @@
     <details class="work-queue-settings">
       <summary>Paramètres globaux des machines</summary>
       <form data-settings-form>
+        <section class="work-queue-global-thermal-settings">
+          <h3>Pause thermique globale</h3>
+          <p class="muted">Si l’un des deux GPU dépasse ce seuil, les deux files attendent une reprise manuelle. Les calculs en cours peuvent terminer.</p>
+          <div class="work-queue-checks">
+            <label><input name="global_thermal_pause_enabled" type="checkbox" checked> Activer la pause thermique globale</label>
+          </div>
+          <div class="work-queue-settings-grid">
+            <label>Seuil GPU commun · °C<input name="global_thermal_pause_temperature_c" type="number" min="30" max="110" step="1" value="86" required></label>
+          </div>
+          <p class="muted" data-global-thermal-status></p>
+          <p class="muted">Surveillance des deux GPU, même popup fermé. Ces réglages sont indépendants des cooldowns ci-dessous. Modifier ou désactiver la protection ne reprend pas une pause déjà déclenchée.</p>
+        </section>
         <div class="work-queue-machine-settings">
           <section>
             <h3>Local</h3>
@@ -120,6 +138,7 @@
         <div data-temperature-charts></div>
       </section>
     </div>
+    <p class="work-queue-thermal-alert" data-global-thermal-compact hidden role="status"></p>
     <div data-notices></div>
     <button class="work-queue-minimized" type="button" data-restore aria-label="Agrandir le suivi des traitements" title="Agrandir le suivi"></button>`;
   document.body.append(floating);
@@ -131,14 +150,16 @@
 
   const activityName = activity => activity?.operation || labels[activity?.workload] || "Traitement";
   const percent = activity => activity?.progress == null ? null : Math.round(Number(activity.progress) * 100);
-  const stateLabel = machine => machine?.state === "cooling" ? "Cooldown"
+  const stateLabel = machine => machine?.global_thermal_paused && machine?.active?.status !== "running" ? "Paused"
+    : machine?.state === "cooling" ? "Cooldown"
     : machine?.active || machine?.state === "busy" ? "Working"
     : machine?.paused ? "Paused"
     : machine?.state === "hot" ? "Hot"
     : machine?.state === "unavailable" ? "Unavailable"
     : Number(machine?.queue_count || 0) > 0 ? "Working" : "Ready";
 
-  const stateTone = machine => machine?.state === "cooling" ? "cooling"
+  const stateTone = machine => machine?.global_thermal_paused && machine?.active?.status !== "running" ? "paused"
+    : machine?.state === "cooling" ? "cooling"
     : machine?.active || machine?.state === "busy" ? "busy"
     : machine?.paused ? "paused"
     : machine?.state === "hot" || machine?.state === "unavailable" ? "unavailable"
@@ -147,6 +168,7 @@
   function setMinimized(value) {
     minimized = Boolean(value);
     floating.classList.toggle("minimized", minimized);
+    renderGlobalThermalPause();
     try {
       window.localStorage.setItem(minimizedStorageKey, String(minimized));
     } catch (_) {
@@ -630,6 +652,10 @@
     action.dataset.resource = resource;
     action.dataset.action = machine?.paused ? "resume" : "pause";
     action.textContent = machine?.paused ? "Reprendre la file" : "Pause après le traitement en cours";
+    if (machine?.global_thermal_paused) {
+      action.disabled = true;
+      action.textContent = "Pause thermique globale";
+    }
     section.append(action);
     return section;
   }
@@ -696,7 +722,8 @@
       if (field(name).type === "checkbox") field(name).checked = Boolean(thermal[name]);
       else field(name).value = String(thermal[name]);
     }
-    for (const name of ["local_cooldown_temperature_c", "local_cooldown_seconds",
+    for (const name of ["global_thermal_pause_enabled", "global_thermal_pause_temperature_c",
+      "local_cooldown_temperature_c", "local_cooldown_seconds",
       "remote_non_video_cooldown_temperature_c", "remote_non_video_cooldown_seconds",
       "remote_video_cooldown_seconds", "history_limit", "pause_after_failure"]) {
       if (settings[name] === undefined) continue;
@@ -705,7 +732,30 @@
     }
   }
 
+  function renderGlobalThermalPause() {
+    const pause = status?.global_thermal_pause;
+    const paused = Boolean(pause?.paused);
+    const alert = dialog.querySelector("[data-global-thermal-alert]");
+    alert.hidden = !paused;
+    const warning = pause?.persistence_error ? " Attention : la pause n’a pas pu être sauvegardée sur disque." : "";
+    const message = (pause?.message || "Pause thermique globale — reprise manuelle requise.") + warning;
+    dialog.querySelector("[data-global-thermal-message]").textContent = paused ? message : "";
+    const threshold = status?.settings?.global_thermal_pause_temperature_c ?? 86;
+    dialog.querySelector("[data-global-thermal-resume-help]").textContent = pause?.can_resume
+      ? "Les deux GPU ont refroidi. La reprise conserve les éventuelles pauses manuelles et les cooldowns."
+      : `La reprise exige les deux températures GPU disponibles et sous ${threshold} °C.`;
+    dialog.querySelector("[data-resume-global-thermal]").disabled = resumingThermalPause || !pause?.can_resume;
+    dialog.querySelector("[data-global-thermal-status]").textContent = !status?.settings ? "Chargement de la protection…"
+      : paused ? "État : en pause — reprise manuelle requise."
+      : status.settings.global_thermal_pause_enabled ? `État : activée · seuil commun ${threshold} °C.`
+      : "État : désactivée.";
+    const compact = floating.querySelector("[data-global-thermal-compact]");
+    compact.hidden = !paused;
+    compact.textContent = paused ? (minimized ? "Pause thermique globale · ouvrir le suivi pour reprendre" : message) : "";
+  }
+
   function render() {
+    renderGlobalThermalPause();
     renderMinimized();
     renderTemperatures();
     if (!status?.machines) {
@@ -811,6 +861,20 @@
     if (button) control(button.dataset.resource, button.dataset.action);
   });
   dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
+  dialog.querySelector("[data-resume-global-thermal]").addEventListener("click", async () => {
+    if (resumingThermalPause) return;
+    resumingThermalPause = true;
+    renderGlobalThermalPause();
+    try {
+      error.textContent = "";
+      status = await request("/api/work-scheduler/thermal-pause/resume", {method: "POST"});
+    } catch (reason) {
+      error.textContent = reason.message;
+    } finally {
+      resumingThermalPause = false;
+      render();
+    }
+  });
   dialog.querySelector("[data-refresh-thermal-history]").addEventListener("click", () => loadThermalHistory24h({force: true}));
   dialog.addEventListener("cancel", event => { event.preventDefault(); dialog.close(); });
   floating.querySelector("[data-open]").addEventListener("click", open);
@@ -833,6 +897,8 @@
         method: "PUT",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
+          global_thermal_pause_enabled: field("global_thermal_pause_enabled").checked,
+          global_thermal_pause_temperature_c: Number(field("global_thermal_pause_temperature_c").value),
           thermal: {
             stop_temperature_c: stop,
             resume_temperature_c: resume,

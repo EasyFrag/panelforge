@@ -25,7 +25,8 @@ class WorkQueueBrowserTest(unittest.TestCase):
           monitor_local:true,monitor_remote:true,pause_when_unavailable:false},
           local_cooldown_temperature_c:80,local_cooldown_seconds:80,
           remote_non_video_cooldown_temperature_c:80,remote_non_video_cooldown_seconds:80,
-          remote_video_cooldown_seconds:30,pause_after_failure:false,history_limit:30};
+          remote_video_cooldown_seconds:30,pause_after_failure:false,history_limit:30,
+          global_thermal_pause_enabled:true,global_thermal_pause_temperature_c:86};
         const status={settings,recent:[{resource:'local_gpu',operation:'Ancien prompt',status:'failed',
           error_type:'RuntimeError',error:'Serveur LLM indisponible'}],
           temperature_history:{window_seconds:3600,bucket_seconds:15,series:{
@@ -49,7 +50,8 @@ class WorkQueueBrowserTest(unittest.TestCase):
             remote_gpu:[{id:'v1',marker:'V',workload:'video_render',operation:'H3 scene 1',started_at:'2026-09-25T09:00:00Z',finished_at:'2026-09-25T09:12:00Z',status:'completed',peak_temperature_c:73}]}};
         window.fetch=async(url,options={})=>{
           calls.push({url,method:options.method||'GET',body:options.body?JSON.parse(options.body):null});
-          const value=url==='/api/work-scheduler/thermal-history'?thermal24:url.endsWith('/pause')?{...status,machines:{...status.machines,
+          const value=url==='/api/work-scheduler/thermal-pause/resume'?{...status,global_thermal_pause:{paused:false,can_resume:false}}
+            :url==='/api/work-scheduler/thermal-history'?thermal24:url.endsWith('/pause')?{...status,machines:{...status.machines,
             local_gpu:{...status.machines.local_gpu,paused:true}}}:url==='/api/work-scheduler/settings'&&options.method==='PUT'
             ? options.body?JSON.parse(options.body):settings:status;
           return {ok:true,json:async()=>value};
@@ -103,15 +105,42 @@ class WorkQueueBrowserTest(unittest.TestCase):
           dialog.querySelector('[data-resource=local_gpu]').click();
           await until(()=>calls.some(call=>call.url==='/api/work-scheduler/local_gpu/pause'));
           const form=dialog.querySelector('[data-settings-form]');
+          check(form.elements.namedItem('global_thermal_pause_enabled').checked&&form.elements.namedItem('global_thermal_pause_temperature_c').value==='86','global protection defaults to enabled at 86');
+          check(form.firstElementChild.classList.contains('work-queue-global-thermal-settings'),'global settings precede local and server settings');
+          form.elements.namedItem('global_thermal_pause_temperature_c').value='84';
+          form.elements.namedItem('global_thermal_pause_enabled').checked=false;
           form.elements.namedItem('remote_non_video_cooldown_temperature_c').value='79';
           form.elements.namedItem('remote_non_video_cooldown_seconds').value='90';
           form.elements.namedItem('remote_video_cooldown_seconds').value='45';
           form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
           await until(()=>calls.some(call=>call.url==='/api/work-scheduler/settings'&&call.method==='PUT'));
           const saved=calls.find(call=>call.url==='/api/work-scheduler/settings'&&call.method==='PUT').body;
+          check(saved.global_thermal_pause_temperature_c===84&&saved.global_thermal_pause_enabled===false,'global protection settings are posted');
           check(saved.remote_non_video_cooldown_temperature_c===79&&saved.remote_non_video_cooldown_seconds===90&&
             saved.remote_video_cooldown_seconds===45&&saved.thermal.stop_temperature_c===85&&
             saved.local_cooldown_temperature_c===80&&saved.local_cooldown_seconds===80,'global settings are posted');
+          await until(()=>!form.querySelector('button[type=submit]').disabled);
+          const latched={...status,global_thermal_pause:{paused:true,can_resume:false,
+            message:'Pause thermique globale — GPU serveur à 87 °C'},machines:{
+            local_gpu:{...status.machines.local_gpu,paused:true,global_thermal_paused:true,
+              active:{...status.machines.local_gpu.active,status:'running'}},
+            remote_gpu:{...status.machines.remote_gpu,global_thermal_paused:true},
+          }};
+          window.dispatchEvent(new CustomEvent('panelforge:work-scheduler-status',{detail:latched}));
+          check(!dialog.querySelector('[data-global-thermal-alert]').hidden&&dialog.textContent.includes('GPU serveur à 87 °C'),'global thermal cause is visible');
+          check([...dialog.querySelectorAll('[data-resource][data-action]')].every(button=>button.disabled),'individual buttons cannot bypass global pause');
+          check(dialog.querySelector('[data-resume-global-thermal]').disabled,'resume stays disabled while hot');
+          check(floating.textContent.includes('Working')&&floating.textContent.includes('50 %'),'active work keeps its progress during global pause');
+          dialog.querySelector('[data-close]').click();
+          check(!floating.querySelector('[data-global-thermal-compact]').hidden,'incident remains visible with popup closed');
+          await window.PanelForgeWorkQueue.open();
+          window.dispatchEvent(new CustomEvent('panelforge:work-scheduler-status',{detail:{...latched,
+            global_thermal_pause:{...latched.global_thermal_pause,can_resume:true}}}));
+          const resumeGlobal=dialog.querySelector('[data-resume-global-thermal]');
+          check(!resumeGlobal.disabled,'cooling allows an explicit acknowledgement');
+          resumeGlobal.click();
+          await until(()=>calls.some(call=>call.url==='/api/work-scheduler/thermal-pause/resume'&&call.method==='POST'));
+          await until(()=>dialog.querySelector('[data-global-thermal-alert]').hidden);
           window.PanelForgeWorkQueue.notice('Admission DLSS interrompue',{id:'dlss:test'});
           check(floating.textContent.includes('Admission DLSS interrompue'),'client-side admission errors use the global monitor');
           window.dispatchEvent(new CustomEvent('panelforge:work-scheduler-status',{detail:{...status,machines:{
