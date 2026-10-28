@@ -9,8 +9,8 @@ from typing import Protocol
 from uuid import UUID
 
 from panelforge.domain.creation_batch import (
-    CreationBatch, CreationBatchConfig, CreationBatchItem, CreationBatchRender, CreationIntent, MAX_BATCH_ITEMS,
-    TERMINAL_IMAGE_STATES,
+    CreationBatch, CreationBatchConfig, CreationBatchItem, CreationBatchRender, CreationBatchRenderMode,
+    CreationIntent, MAX_BATCH_ITEMS, TERMINAL_IMAGE_STATES,
 )
 from panelforge.domain.krea2_batch import Krea2PromptLanguage
 from panelforge.domain.krea2_sampling import Krea2AssistedSettings, sampling_from_dict
@@ -74,7 +74,9 @@ class CreationBatchService:
             self.render_progress.stop()
 
     def create(self, *, request_id, name, intentions, model_id, recipe_version="6.0.0",
-               language="en", local_inspiration=False, preset_id, preset_revision, art_style_id=None):
+               language="en", local_inspiration=False, preset_id, preset_revision, art_style_id=None,
+               render_mode=CreationBatchRenderMode.FLUX_KLEIN):
+        render_mode = CreationBatchRenderMode(render_mode)
         try:
             batch_id = "creation-batch-" + UUID(request_id).hex
         except (ValueError, TypeError, AttributeError) as error:
@@ -87,6 +89,10 @@ class CreationBatchService:
         request = dict(name=name.strip(), intentions=[asdict(item) for item in intents], model_id=model_id,
                        recipe_version=recipe_version, language=language, local_inspiration=local_inspiration,
                        preset_id=preset_id, preset_revision=preset_revision, art_style_id=art_style_id)
+        # Keep the historical request digest for omitted/default Flux mode, so a
+        # retry issued by an older client still adopts its original frozen batch.
+        if render_mode is not CreationBatchRenderMode.FLUX_KLEIN:
+            request["render_mode"] = render_mode.value
         digest = hashlib.sha256(json.dumps(request, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         with self._lock:
             self._load()
@@ -100,7 +106,7 @@ class CreationBatchService:
             raise ValueError("Recette d'assistance inconnue.")
         if model_id not in {model.model_id for model in self.assisted.list_models()}:
             raise ValueError("Le modèle LLM sélectionné n'est plus disponible.")
-        preset, settings = self.assisted.snapshot_batch_preset(preset_id, preset_revision)
+        preset, settings = self.assisted.snapshot_batch_preset(preset_id, preset_revision, render_mode=render_mode)
         if art_style_id and self.assisted.style_catalog is None:
             raise ValueError("Catalogue de directions artistiques indisponible.")
         art = self.assisted.style_catalog.get(art_style_id) if art_style_id else None
@@ -213,7 +219,8 @@ class CreationBatchService:
             config = replace(config, recipe_version="6.0.0", art_direction=self.assisted.style_catalog.get(art_style_id))
             label = config.art_direction.display_name
         else:
-            preset, settings = self.assisted.snapshot_batch_preset(preset_id, preset_revision)
+            preset, settings = self.assisted.snapshot_batch_preset(
+                preset_id, preset_revision, render_mode=config.render_mode)
             config = replace(config, preset=preset, settings=settings, art_direction=preset.art_direction,
                              recipe_version="6.0.0", language=preset.prompt_language)
             label = preset.name

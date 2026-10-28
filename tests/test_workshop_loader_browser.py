@@ -69,13 +69,13 @@ class WorkshopLoaderBrowserTests(unittest.TestCase):
 
     def test_mh_loads_once_without_loading_edit_or_video_workshops(self):
         self.scenario(r"""
-          check(downloads.join(',')==='mh-assisted.js','only MH is downloaded on restoration');
+          check(downloads.join(',')==='minimax-loras.js','MH loads its shared LoRA controls first');
           const root=document.querySelector('#mh-assisted-lab-workspace');
           check(!root.hidden&&root.inert,'restored MH waits for its bindings');
           await drain();check(!root.inert,'MH becomes interactive');
           document.querySelector('[data-image-lab-mode="krea2-assisted-lab"]').click();
           document.querySelector('[data-image-lab-mode="mh-assisted-lab"]').click();await settle();
-          check(downloads.length===1,'returning to MH does not execute its script twice');
+          check(downloads.join(',')==='minimax-loras.js,mh-assisted.js','returning to MH does not execute its scripts twice');
         """, saved="mh-assisted-lab")
 
     def test_first_click_blocks_unbound_controls_and_concurrent_clicks_share_downloads(self):
@@ -112,7 +112,7 @@ class WorkshopLoaderBrowserTests(unittest.TestCase):
           check(!qwen.hidden&&qwen.inert,'restored workshop waits for bindings');
           document.querySelector('[data-image-lab-mode="minimax-edit-lab"]').click();await settle();
           await drain();
-          check(downloads.join(',')==='qwen-edit-v2.js','both views share their implementation');
+          check(downloads.join(',')==='minimax-loras.js,qwen-edit-v2.js','both views share their implementation');
           check(qwen.hidden&&!document.querySelector('#minimax-edit-lab-workspace').inert,'latest navigation wins');
           check(ready.join(',')==='minimax-edit-lab','stale restored view not activated');
         """, saved="qwen-edit-lab")

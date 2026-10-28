@@ -5,9 +5,10 @@ from . import image_journey_reference_prompting as journey_references
 from . import image_journey_realistic_prompting as realistic
 from panelforge.domain.image_journeys import journey_preset, finished_label
 from .qwen_edit import QwenEditService
+from .minimax_loras import MinimaxLoraSupport
 
 
-class MinimaxEditService(QwenEditService):
+class MinimaxEditService(MinimaxLoraSupport, QwenEditService):
     def __init__(self, **kwargs):
         super().__init__(policy=policy, prompting=assistance, **kwargs)
 

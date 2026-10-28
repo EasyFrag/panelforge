@@ -11,7 +11,7 @@
       "stories.js", "stories-help.js", "episode-localization.js", "episode-thumbnail-layout.js",
       "episode-thumbnails.js", "episodes.js", "story-library.js"]},
     edit: {files: ["krea2-retouch.js", "image-crop.js", "krea2-edit-lab.js"]},
-    qwen: {files: ["qwen-edit-v2.js"]},
+    qwen: {files: ["minimax-loras.js", "qwen-edit-v2.js"]},
     journey: {files: ["image-journey-actions.js", "image-journeys.js"]},
     transitions: {files: ["image-transition-references.js", "image-transitions.js"]},
     storyV2: {files: ["story-v2-settings.js", "story-v2.js"]},
@@ -19,7 +19,7 @@
     social: {files: ["social-lab.js"]},
     analysis: {files: ["media-analysis-media.js", "media-analysis-speech.js", "media-analysis.js"]},
     batch: {files: ["creation-batch.js"]},
-    mh: {files: ["mh-assisted.js"]},
+    mh: {files: ["minimax-loras.js", "mh-assisted.js"]},
   };
   const views = {
     "i2v-direct": "video", "ref2v-direct": "video", stories: "stories",

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from panelforge.domain.minimax_edit import MinimaxEditSettings, MAX_RENDER_IMAGES, validate_prompt
+from panelforge.domain.minimax_loras import MAX_LORAS
 from panelforge.domain.recipes import RecipeRef
 from .krea2_edit import _binding, _validate_no_orphans
 
@@ -40,6 +41,17 @@ class MinimaxEditWorkflow:
                        or count != 1 and not self.manifest["capabilities"].get("native_multi_reference")):
             raise ValueError("Ce workflow ne prend pas en charge ces références en mode natif.")
         graph = deepcopy(self.template)
+        if settings.active_loras:
+            loras = self.manifest.get("lora_slots")
+            if not loras:
+                raise ValueError("Ce workflow MiniMax ne prend pas en charge les LoRA image.")
+            source = list(loras["model_source"])
+            for node_id, selection in zip(loras["node_ids"], settings.active_loras):
+                graph[node_id] = {"class_type": "LoraLoaderModelOnly", "inputs": {
+                    "model": source, "lora_name": selection.name, "strength_model": selection.strength}}
+                source = [node_id, 0]
+            for target in loras["model_targets"]:
+                graph[target["node_id"]]["inputs"][target["input"]] = list(source)
         values = {"prompt": prompt, "seed": int(settings.seed), "steps": settings.steps,
                   "width": dimensions[0], "height": dimensions[1], "output_prefix": output_prefix,
                   "reference_megapixels": settings.reference_megapixels}
@@ -106,5 +118,18 @@ def load_minimax_edit_workflow(directory):
             or [slot["input"] for slot in slots] != [f"ref_images.ref_image_{i}" for i in range(len(slots))]):
         raise ValueError("Les références Minimax doivent avoir des identités et un ordre explicites.")
     _validate_no_orphans(graph, manifest["output"]["node_id"])
+    if "lora_slots" in manifest:
+        loras = manifest["lora_slots"]
+        source, ids, targets = loras["model_source"], loras["node_ids"], loras["model_targets"]
+        reserved = set(graph) | {s[key] for s in slots for key in ("load_node", "scale_node")} | {manifest["guide"]["mask_node"]}
+        if (len(ids) != MAX_LORAS or len(set(ids)) != MAX_LORAS
+                or any(not isinstance(node, str) or not node or node in reserved for node in ids)
+                or not isinstance(source, list) or len(source) != 2 or source[0] not in graph
+                or type(source[1]) is not int or source[1] < 0 or not targets):
+            raise ValueError("Liaisons LoRA MiniMax invalides.")
+        for target in targets:
+            _binding(target, graph, "LoRA model")
+            if graph[target["node_id"]]["inputs"][target["input"]] != source:
+                raise ValueError("La cible LoRA MiniMax ne correspond pas au modèle source.")
     return MinimaxEditWorkflow(RecipeRef(operation_id=manifest["operation_id"], recipe_id=manifest["recipe_id"],
         version=manifest["version"], workflow_sha256=manifest["workflow_sha256"]), manifest, graph)

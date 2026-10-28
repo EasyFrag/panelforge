@@ -343,6 +343,7 @@
       el("name").value = batch.name;
       el("recipe").value = batch.config.recipe_version;
       el("language").value = batch.config.language;
+      el("render-mode").value = batch.config.render_mode || "krea2-flux-klein";
       el("inspiration").checked = batch.config.local_inspiration;
       if (![...el("preset").options].some(o => o.value === batch.config.preset_id))
         el("preset").append(new Option(batch.preset_name + " · copie du batch", batch.config.preset_id));
@@ -440,6 +441,7 @@
         model_id: el("model").value, recipe_version: el("recipe").value, language: el("language").value,
         local_inspiration: !el("inspiration").disabled && el("inspiration").checked,
         preset_id: preset.preset_id, preset_revision: preset.revision,
+        render_mode: el("render-mode").value,
         art_style_id: el("recipe").value === "6.0.0" ? state.art?.style_id || null : null};
     }
     state.submitting = true; setStored(pendingKey, state.pending.request_id); message(""); updateControls();

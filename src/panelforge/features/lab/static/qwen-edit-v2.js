@@ -67,6 +67,9 @@ function mountEditWorkshop({engine, idPrefix, label, modelName, shortName, publi
   const json = (url, data, method = "POST") => request(url, {
     method, headers: {"Content-Type": "application/json"}, body: JSON.stringify(data),
   });
+  const loras = engine === "minimax" ? window.PanelForgeMinimaxLoras.mount($("loras"), {
+    api, request, onChange: () => queueChanges({settings: readSettings()}),
+  }) : null;
 
   function clearError() {
     for (const id of ["error", "sidebar-error"]) {
@@ -254,6 +257,7 @@ function mountEditWorkshop({engine, idPrefix, label, modelName, shortName, publi
     if (cfgEnabled) setValue("cfg", current.settings.cfg, "settings");
     setValue("seed", current.settings.seed, "settings");
     if (!Object.hasOwn(state.pending, "settings")) {
+      loras?.setValue(current.settings.loras || []);
       $("reuse-seed").checked = current.settings.reuse_seed;
       $("negative").value = current.settings.negative_prompt || "";
       workspace.querySelector(`input[name="${idPrefix}-color-finish"][value="${current.settings.color_finish || "natural"}"]`).checked = true;
@@ -491,6 +495,8 @@ function mountEditWorkshop({engine, idPrefix, label, modelName, shortName, publi
         hasNaturalFinish(attempt) ? "harmonisé source"
           : attempt.finish?.status === "fallback" ? "brut · finition indisponible" : null,
       ].filter(Boolean).join(" · ")));
+      if (attempt.settings?.loras?.length) copy.append(element("small", "",
+        "LoRA : " + window.PanelForgeMinimaxLoras.summary(attempt.settings.loras)));
       const actions = element("div", "qv2-attempt-actions");
       if (attempt.output_asset_id) actions.append(actionButton("Comparer", () => selectAttempt(attempt)));
       if (attempt.raw_output_asset_id && attempt.raw_output_asset_id !== attempt.output_asset_id) {
@@ -530,6 +536,7 @@ function mountEditWorkshop({engine, idPrefix, label, modelName, shortName, publi
     const activeMessage = current.messages.find(item => ["queued", "running"].includes(item.status));
     const choice = outputChoice();
     const locked = Boolean(activeAttempt || activeMessage);
+    loras?.setDisabled(!canEdit || locked);
 
     $("restart").disabled = !canEdit || locked
       || (!current.messages.length && !current.attempts.length && !current.references.some(ref => ref.active)
@@ -773,12 +780,14 @@ function mountEditWorkshop({engine, idPrefix, label, modelName, shortName, publi
 
   function readSettings() {
     return {
+      ...(engine === "minimax" ? stage().settings : {}),
       resolution: $("resolution").value,
       aspect_ratio: $("ratio").value,
       steps: Number($("steps").value),
       ...(cfgEnabled ? {cfg: Number($("cfg").value), negative_prompt: $("negative").value} : {}),
       seed: $("seed").value.trim(),
       reuse_seed: $("reuse-seed").checked,
+      ...(loras ? {loras: loras.getValue()} : {}),
       color_finish: workspace.querySelector(`input[name="${idPrefix}-color-finish"]:checked`)?.value || "natural",
     };
   }
@@ -1144,6 +1153,7 @@ function mountEditWorkshop({engine, idPrefix, label, modelName, shortName, publi
   async function init() {
     if (state.initialized) return state.initialized;
     state.initialized = (async () => {
+      void loras?.refresh();
       const [projects, models] = await Promise.all([
         request(`${api}/projects`), request(`${api}/models`),
       ]);

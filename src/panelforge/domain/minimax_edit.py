@@ -7,6 +7,7 @@ import re
 
 from .qwen_edit import MAX_ASSISTANT_IMAGES, RATIOS, validate_references
 from .qwen_edit import render_inputs as _render_inputs, context_snapshot as _context_snapshot
+from .minimax_loras import MinimaxLora, lora_slots
 
 ENGINE = "minimax"
 LABEL = "Minimax"
@@ -26,8 +27,10 @@ class MinimaxEditSettings:
     color_finish: str = "raw"
     reference_megapixels: int = 1
     reference_mode: str = "resize"
+    loras: tuple[MinimaxLora, ...] = ()
 
     def __post_init__(self):
+        object.__setattr__(self, "loras", lora_slots(self.loras))
         if self.reference_mode not in {"resize", "native"}:
             raise ValueError("Mode de référence MiniMax invalide.")
         if self.reference_mode == "native" and self.resolution not in {"source", "double"}:
@@ -64,7 +67,11 @@ class MinimaxEditSettings:
         return max(64, round(width * scale / 32) * 32), max(64, round(height * scale / 32) * 32)
 
     def record(self):
-        return asdict(self)
+        return {**asdict(self), "loras": [asdict(entry) for entry in self.loras]}
+
+    @property
+    def active_loras(self):
+        return tuple(entry for entry in self.loras if entry.enabled and entry.strength > 0)
 
 
 Settings = MinimaxEditSettings

@@ -1,13 +1,31 @@
 """Explicit contracts for CSV-driven assisted image creation."""
 from dataclasses import dataclass
+from enum import StrEnum
 
 from .krea2_art_direction import Krea2ArtDirection
+from .krea2_assisted_workflows import DEFAULT_KREA2_ASSISTED_WORKFLOW, KREA2_FLUX_KLEIN_WORKFLOW
 from .krea2_batch import Krea2BatchSettings, Krea2PromptLanguage
+from .krea2_sampling import Krea2AssistedSettings
 from .krea2_style_presets import Krea2StylePreset
 
 MAX_BATCH_ITEMS = 500
 MAX_CSV_BYTES = 8 * 1024 * 1024
 TERMINAL_IMAGE_STATES = frozenset({"succeeded", "failed", "cancelled"})
+
+
+class CreationBatchRenderMode(StrEnum):
+    TWO_PASS = "krea2-sampling"
+    FLUX_KLEIN = "krea2-flux-klein"
+
+    @property
+    def workflow(self):
+        return DEFAULT_KREA2_ASSISTED_WORKFLOW if self is CreationBatchRenderMode.TWO_PASS else KREA2_FLUX_KLEIN_WORKFLOW
+
+    @classmethod
+    def from_settings(cls, settings: Krea2BatchSettings):
+        # Historical settings without a workflow use the original two-pass family.
+        workflow = settings.workflow if isinstance(settings, Krea2AssistedSettings) else DEFAULT_KREA2_ASSISTED_WORKFLOW
+        return cls(workflow.recipe_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +49,10 @@ class CreationBatchConfig:
     preset: Krea2StylePreset
     settings: Krea2BatchSettings
     art_direction: Krea2ArtDirection | None = None
+
+    @property
+    def render_mode(self) -> CreationBatchRenderMode:
+        return CreationBatchRenderMode.from_settings(self.settings)
 
     def __post_init__(self):
         if not isinstance(self.model_id, str) or not self.model_id.strip() or len(self.model_id) > 300:

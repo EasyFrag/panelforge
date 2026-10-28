@@ -1,0 +1,231 @@
+{
+  "2": {
+    "inputs": {
+      "vae_name": "minimax_h3_video_vae_int8_convrot.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "3": {
+    "inputs": {
+      "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "6": {
+    "inputs": {
+      "sampler_name": "er_sde"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSamplerSelect"
+    }
+  },
+  "7": {
+    "inputs": {
+      "scheduler": "beta",
+      "steps": 18,
+      "denoise": 1,
+      "model": [
+        "60",
+        0
+      ]
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {
+      "title": "BasicScheduler"
+    }
+  },
+  "8": {
+    "inputs": {
+      "noise": [
+        "12",
+        0
+      ],
+      "guider": [
+        "9",
+        0
+      ],
+      "sampler": [
+        "6",
+        0
+      ],
+      "sigmas": [
+        "7",
+        0
+      ],
+      "latent_image": [
+        "65",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "SamplerCustomAdvanced"
+    }
+  },
+  "9": {
+    "inputs": {
+      "model": [
+        "60",
+        0
+      ],
+      "conditioning": [
+        "28",
+        0
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "Basic Guider"
+    }
+  },
+  "11": {
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_bf16.safetensors",
+      "type": "minimax",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "12": {
+    "inputs": {
+      "noise_seed": 699635426837388
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "RandomNoise"
+    }
+  },
+  "25": {
+    "inputs": {
+      "image": "attempt-432458c392604836ad4c1dbc9c93aa88_00001_.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "28": {
+    "inputs": {
+      "prompt": "iintegrated_multimodal_description:\n\nsubject_definitions:\n<CHARACTER> girl from <Picture 1>.\n\nsummary:\n[reference generation] Creating exactly same composition with altered instructed details.\n\nretention_analysis:\n<CHARACTER>: fully_preserved.\n\ndetailed_description:\nThe target video is a static image of exact same composition from <Picture 1>. Keep composition the same CHANGE only instructed details.\n\n[Shot 1] static image.\n\n<CHARACTER> exactly same pose and composition in the center BUT \n- CHANGE <CHARACTER> black hair to blonde with pink ends.\n- ADD <CHARACTER>'s black dress to pink pleated short skirt and white tight blouse.\n- CHANGE <CHARACTER>'s black lips to red.\n- CHANGE background light from night to day.\n- CHANGE <CHARACTER>'s choker to pink and golden round pendant with \"LOVE\" symbol.\n- CHANGE <CHARACTER>'s stocking to new ideal Fishnet stockings.\n- Keep the text in the middle the same.\n\noverall_soundscape: N/A\n\nnon_diegetic_music: N/A",
+      "width": 2016,
+      "height": 3584,
+      "length": 5,
+      "ref_image_size": "max",
+      "clip": [
+        "11",
+        0
+      ],
+      "vae": [
+        "2",
+        0
+      ],
+      "audio_vae": [
+        "3",
+        0
+      ],
+      "ref_images.ref_image_0": [
+        "47",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3ReferenceToVideo",
+    "_meta": {
+      "title": "MiniMax H3 Reference to Video"
+    }
+  },
+  "47": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "megapixels": 1,
+      "resolution_steps": 1,
+      "image": [
+        "25",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "Scale Image to Total Pixels"
+    }
+  },
+  "60": {
+    "inputs": {
+      "attention": "comfy kitchen attention",
+      "model": [
+        "69",
+        0
+      ]
+    },
+    "class_type": "ModelAttentionBackend",
+    "_meta": {
+      "title": "Model Attention Backend"
+    }
+  },
+  "64": {
+    "inputs": {
+      "samples": [
+        "8",
+        0
+      ],
+      "vae": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "FizgigH3StillDecode",
+    "_meta": {
+      "title": "Fizgig H3 Still Decode"
+    }
+  },
+  "65": {
+    "inputs": {
+      "width": 2016,
+      "height": 3584,
+      "batch_size": 1
+    },
+    "class_type": "FizgigH3StillLatent",
+    "_meta": {
+      "title": "Fizgig H3 Still Latent (single frame)"
+    }
+  },
+  "68": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": [
+        "64",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "69": {
+    "inputs": {
+      "base_model": "minimax_h3_fl2va_bf16.safetensors",
+      "overlay_model": "minimax_h3_ref2va_bf16.safetensors",
+      "overlay_preset": "block_range_adaln",
+      "block_range_start": 25,
+      "block_range_end": 49,
+      "final_adaln_from_overlay": false,
+      "custom_overlays": "",
+      "custom_base": "",
+      "weight_dtype": "default"
+    },
+    "class_type": "MiniMaxH3HybridLoader",
+    "_meta": {
+      "title": "MiniMax H3 Hybrid Loader"
+    }
+  }
+}

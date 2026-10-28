@@ -35,6 +35,12 @@ class MhAssistedBrowserTests(unittest.TestCase):
           const pose=(id,angle)=>({id,pose_id:'pose-one',number:'P001',name:'<img src=x onerror=window.pwned=true>',
             category:'Debout',family:'Corps entier',angle,catalog_revision:'r1'});
           const poses=[pose('pose_front','Face'),pose('pose_side','Profil')];
+          const filterPoses=[
+            {id:'duo_seated',pose_id:'duo-seated',number:'P002',name:'Assis enlacés',source_name:'寄り添う',family:'Duo',category:'Assis',angle:'Face'},
+            {id:'duo_standing',pose_id:'duo-standing',number:'P003',name:'Debout enlacés',family:'Duo',category:'Debout enlacés',angle:'Trois-quarts'},
+            {id:'solo_nsfw',pose_id:'solo-nsfw',number:'P062',name:'Genoux à la poitrine',family:'Corps entier · NSFW',category:'Allongé',angle:'Profil'}
+          ];
+          let filterFixtures=false;
           let project=null, lostRender=true;
           const current=()=>project.stages[0];
           function applyPose(id){
@@ -45,9 +51,10 @@ class MhAssistedBrowserTests(unittest.TestCase):
             calls.push([url,options]);const method=options.method||'GET';let data;
             if(url.endsWith('/spec')) data={defaults:settings,aspect_ratios:['9:16','1:1'],default_model_id:model,pose_catalog:{state:'ready'}};
             else if(url.endsWith('/models'))data={models:[{id:model,source:'local'},{id:'server-model',source:'server'}]};
+            else if(url.includes('/loras'))data={models:['minmax_nsfw/style.safetensors'],supported:true,maximum:4};
             else if(url.endsWith('/style-presets'))data={presets:[preset]};
             else if(url.endsWith('/art-styles'))data={styles:[art]};
-            else if(url.endsWith('/poses'))data={entries:poses,catalog:{state:'ready',pose_count:1,image_count:2,categories:['Debout'],families:['Corps entier'],angles:['Face','Profil']}};
+            else if(url.endsWith('/poses'))data={entries:filterFixtures?[...poses,...filterPoses]:poses,catalog:{state:'ready',pose_count:1,image_count:2,categories:['Debout'],families:['Corps entier'],angles:['Face','Profil','Trois-quarts']}};
             else if(url.endsWith('/projects')&&method==='GET')data={projects:project?[{id:project.id,name:project.name,thumbnail_asset_id:'pose_side'}]:[]};
             else if(url.endsWith('/projects')&&method==='POST'){
               const f=options.body;
@@ -99,6 +106,26 @@ class MhAssistedBrowserTests(unittest.TestCase):
             check(el('new-pose-name').textContent.includes('Profil'),'chosen angle visible');
             check(!window.pwned,'catalogue strings are rendered as text');
             check(!el('create').disabled,'pose alone permits creation');
+            filterFixtures=true;el('new-pose-choose').click();await settle();
+            const options=id=>[...el(id).options].map(o=>o.value).filter(Boolean);
+            change('picker-family','Duo');
+            check(JSON.stringify(options('picker-category'))===JSON.stringify(['Assis','Debout enlacés']),'Duo categories exclude solo and bust categories');
+            change('picker-category','Assis');
+            check(JSON.stringify(options('picker-angle'))===JSON.stringify(['Face']),'angles follow the selected category');
+            change('picker-family','Corps entier');
+            check(el('picker-category').value===''&&options('picker-category').join()==='Debout','incompatible category resets on family change');
+            change('picker-angle','Profil');change('picker-family','Duo');
+            check(el('picker-angle').value===''&&options('picker-angle').join()==='Face,Trois-quarts','unavailable angle resets on family change');
+            el('picker-search').value='enlaces';el('picker-search').dispatchEvent(new Event('input'));
+            check(el('picker-grid').children.length===2,'French search ignores accents');
+            el('picker-search').value='寄り添う';el('picker-search').dispatchEvent(new Event('input'));
+            check(el('picker-grid').children.length===1,'original catalogue names remain searchable');
+            el('picker-search').value='';el('picker-search').dispatchEvent(new Event('input'));
+            change('picker-family','Corps entier · NSFW');
+            check(el('picker-grid').children.length===1&&options('picker-category').join()==='Allongé','NSFW family is discoverable and filtered');
+            el('picker-search').value='no-match';el('picker-search').dispatchEvent(new Event('input'));
+            check(el('picker-grid').children.length===0&&options('picker-category').length===0&&options('picker-angle').length===0,'empty results clear unavailable filter options');
+            el('picker-close').click();filterFixtures=false;
             change('new-name','MH reference fixture');change('new-intention','Create a portrait');
             el('create').click();el('create').click();await settle();
             const creations=calls.filter(([u,o])=>u.endsWith('/projects')&&o.method==='POST');
@@ -110,10 +137,17 @@ class MhAssistedBrowserTests(unittest.TestCase):
             change('active-language','en');await settle();check(el('render').disabled,'language change invalidates prompt');
             el('chat').click();await settle();check(!el('render').disabled,'new prompt allows render');
             change('ratio','1:1');change('seed','18446744073709551610');
+            const loraSelect=el('loras').querySelector('select');
+            loraSelect.value='minmax_nsfw/style.safetensors';loraSelect.dispatchEvent(new Event('change'));
+            const strength=el('loras').querySelector('input[type=range]');
+            strength.value='.375';strength.dispatchEvent(new Event('input'));
+            el('refresh').click();await settle();
+            check(loraSelect.value==='minmax_nsfw/style.safetensors'&&strength.value==='0.375','refresh retains unsaved LoRA settings');
             el('render').click();el('render').click();await settle();
             check(calls.filter(([u,o])=>u.endsWith('/attempts')&&o.method==='POST').length===1,'lost render receipt never duplicates submission');
             check(el('attempts').children.length===1&&el('render').disabled,'queued attempt reconciled after lost response');
             check(current().attempts[0].settings.seed==='18446744073709551610','uint64 seed remains text');
+            check(current().attempts[0].settings.loras[0].strength===.375,'attempt pins selected LoRA strength');
             check(current().attempts[0].context.creative.pose.id==='pose_side','attempt pins pose');
             el('active-pose-choose').click();await settle();
             const nextCard=el('picker-grid').firstElementChild;nextCard.querySelector('button').click();await settle();
@@ -134,6 +168,6 @@ class MhAssistedBrowserTests(unittest.TestCase):
           }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack;}})();
         """
         css = (STATIC / "lab.css").read_text(encoding="utf-8") + (STATIC / "mh-assisted.css").read_text(encoding="utf-8")
-        app = (STATIC / "mh-assisted.js").read_text(encoding="utf-8")
+        app = (STATIC / "minimax-loras.js").read_text(encoding="utf-8") + (STATIC / "mh-assisted.js").read_text(encoding="utf-8")
         self.run_browser(browsers[-1], '<meta charset="utf-8"><style>' + css + '</style><pre id="result">PENDING</pre>'
                          + markup + '<script>' + model_picker + bootstrap + app + scenario + '</script>')

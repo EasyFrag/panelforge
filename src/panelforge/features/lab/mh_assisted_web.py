@@ -58,6 +58,10 @@ def mh_assisted_router(service):
         return action(lambda: dict(models=[dict(id=m.model_id, source=m.source, label=m.display_name or m.model_id)
             for m in service.list_models()]), project=False)
 
+    @router.get("/loras")
+    def loras(refresh: bool = False):
+        return action(lambda: service.lora_inventory(refresh=refresh), project=False)
+
     @router.get("/poses")
     def poses():
         return action(lambda: dict(catalog=service.poses.status(), entries=service.poses.entries()

@@ -1,5 +1,6 @@
 """User-run HTTP contracts, with no workers or external services."""
 from io import BytesIO
+from dataclasses import replace
 import tempfile
 import unittest
 from uuid import uuid4
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from panelforge.application.creation_batch import CreationBatchService
+from panelforge.domain.krea2_sampling import as_batch_settings
 from panelforge.features.lab.creation_batch_web import creation_batch_router
 from panelforge.infrastructure.creation_batch_thumbnails import PillowBatchThumbnails
 from panelforge.infrastructure.storage.creation_batch import LocalCreationBatchStore
@@ -61,11 +63,33 @@ class CreationBatchWebTests(unittest.TestCase):
 
     def test_presets_are_required_and_render_overrides_are_rejected(self):
         for changes in ({"preset_id": ""}, {"settings": {"model_name": "override"}},
-                        {"request_id": "../outside"}, {"intentions": []}, {"model_id": "unknown"}):
+                        {"request_id": "../outside"}, {"intentions": []}, {"model_id": "unknown"},
+                        {"render_mode": "unknown"}, {"render_mode": None}, {"sampling": "current"}):
             with self.subTest(changes=changes):
                 response = self.client.post(self.api + "/batches", json=request_values(**changes))
                 self.assertEqual(response.status_code, 422)
         self.assertEqual(self.assisted.chat_calls, [])
+
+    def test_render_mode_is_exposed_on_launch_restore_and_compact_poll(self):
+        for mode in ("krea2-sampling", "krea2-flux-klein"):
+            with self.subTest(mode=mode):
+                values = request_values(render_mode=mode)
+                response = self.client.post(self.api + "/batches", json=values)
+                self.assertEqual(response.status_code, 201)
+                batch = response.json()["batch"]
+                self.assertEqual(batch["config"]["render_mode"], mode)
+                url = self.api + "/batches/" + batch["batch_id"]
+                for endpoint in (url, self.api + "/current", url + "?known_revision=0&known_count=1"):
+                    self.assertEqual(self.client.get(endpoint).json()["batch"]["config"]["render_mode"], mode)
+                changed = "krea2-flux-klein" if mode == "krea2-sampling" else "krea2-sampling"
+                self.assertEqual(self.client.post(self.api + "/batches", json={**values, "render_mode": changed}).status_code, 409)
+
+    def test_legacy_batch_is_displayed_as_two_pass_without_migrating_its_settings(self):
+        batch = self.service.create(**request_values())
+        old = replace(batch, config=replace(batch.config, settings=as_batch_settings(batch.config.settings)))
+        self.service._save(old)
+        self.assertEqual(self.client.get(self.api + "/current").json()["batch"]["config"]["render_mode"], "krea2-sampling")
+        self.assertEqual(self.service.store.get(batch.batch_id), old)
 
     def test_current_and_previews_only_reference_the_selected_batch(self):
         self.assertIsNone(self.client.get(self.api + "/current").json()["batch"])

@@ -8,9 +8,10 @@ from uuid import UUID
 from panelforge.domain import mh_assisted as policy
 from . import mh_assisted_prompting as prompting
 from .qwen_edit import QwenEditService, QwenEditConflict, _id, _now, _attempt
+from .minimax_loras import MinimaxLoraSupport
 
 
-class MhAssistedService(QwenEditService):
+class MhAssistedService(MinimaxLoraSupport, QwenEditService):
     def __init__(self, *, style_source, poses, **kwargs):
         super().__init__(policy=policy, prompting=prompting, **kwargs)
         self.style_source, self.poses = style_source, poses

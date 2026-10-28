@@ -530,7 +530,7 @@ def build_app(args: argparse.Namespace, *, startup):
     minimax_edit = MinimaxEditService(
         gateway=gateway,
         image_timings=image_timings,
-        workflow=load_minimax_edit_workflow(PROJECT_ROOT / "workflows/image.edit/minimax-h3-still/1.3.0"),
+        workflow=load_minimax_edit_workflow(PROJECT_ROOT / "workflows/image.edit/minimax-h3-still/1.4.0"),
         comfy=krea2_edit_comfy, assets=assets, projects=LocalMinimaxEditStore(args.workspace),
         images=PillowMinimaxEditImages(),
         edit_images=PillowEditImages(), retouch_compositor=PillowRetouchCompositor(),

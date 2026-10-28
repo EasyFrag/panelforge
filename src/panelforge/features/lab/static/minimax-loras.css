@@ -1,0 +1,10 @@
+.minimax-loras {display:grid;gap:.65rem;margin:1rem 0;padding:1rem;border:1px solid var(--line,#ddd);border-radius:10px;min-width:0}
+.minimax-loras > div:first-child {display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+.minimax-loras > small {line-height:1.45}
+.minimax-lora-row {display:grid;grid-template-columns:2.8rem minmax(0,1fr) 9rem;gap:.6rem;align-items:center;min-width:0}
+.minimax-lora-row > label {display:flex;align-items:center;gap:.3rem;margin:0;font-size:.8rem}
+.minimax-lora-row select {width:100%;min-width:0}
+.minimax-lora-row input[type=checkbox] {width:auto;margin:0}
+.minimax-lora-row input[type=range] {min-width:0;width:4rem;padding:0}
+.minimax-lora-row output {min-width:2rem}
+@media(max-width:680px) {.minimax-lora-row {grid-template-columns:2rem minmax(0,1fr)}.minimax-lora-row > label:last-child {grid-column:2}.minimax-lora-row input[type=range] {width:7rem}}

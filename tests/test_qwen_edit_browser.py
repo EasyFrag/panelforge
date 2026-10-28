@@ -32,7 +32,7 @@ class QwenEditBrowserTest(unittest.TestCase):
         page = marker + html.split(marker, 1)[1].split("</dialog>", 1)[0] + "</dialog>"
         page = page.replace('class="qwen-v2-workspace" hidden',
                             'class="qwen-v2-workspace"', 1)
-        code = (STATIC / "qwen-edit-v2.js").read_text(encoding="utf-8")
+        code = (STATIC / "minimax-loras.js").read_text(encoding="utf-8") + (STATIC / "qwen-edit-v2.js").read_text(encoding="utf-8")
         code = code.replace(
             'const media = assetId => `/api/assets/${encodeURIComponent(assetId)}/content`;',
             'const media = assetId => window.fixtureImage;',
@@ -70,6 +70,7 @@ class QwenEditBrowserTest(unittest.TestCase):
           current.render_inputs=values.map((value,index)=>({...value,tag:`<image${index+1}>`}));
         };
         window.fetch=async(url,options={})=>{
+          if(url.includes('/loras'))return {ok:true,json:async()=>({models:['minmax_nsfw/style.safetensors'],supported:true,maximum:4})};
           const method=options.method||'GET'; sent.push([url,method,options.body]);
           const out=(data,status=200)=>({ok:status<400,status,json:async()=>structuredClone(data)});
           if(url.endsWith('/models'))return out({default_model_id:workshopEngine==='minimax'?gemma:'',
@@ -148,6 +149,14 @@ class QwenEditBrowserTest(unittest.TestCase):
 
           el('steps').value='28';el('steps').dispatchEvent(new Event('change',{bubbles:true}));
           await wait(()=>current.settings.steps===28&&el('save-state').textContent.includes('Enregistré'));
+          if(workshopEngine==='minimax') {
+            const select=el('loras').querySelector('select');
+            select.value='minmax_nsfw/style.safetensors';select.dispatchEvent(new Event('change'));
+            const strength=el('loras').querySelector('input[type=range]');
+            strength.value='.375';strength.dispatchEvent(new Event('input'));
+            await wait(()=>current.settings.loras?.[0]?.strength===.375&&el('save-state').textContent.includes('Enregistré'));
+            check(current.settings.loras[0].enabled,'MiniMax LoRA autosave retains activation');
+          }
           el('draft').value='Reprends les couleurs de mon inspiration.';
           el('draft').dispatchEvent(new Event('input',{bubbles:true}));
           await wait(()=>current.draft.includes('inspiration'));
