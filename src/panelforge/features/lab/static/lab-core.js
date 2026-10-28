@@ -5,6 +5,7 @@
   const elements = {
     changeView: $("#change-view-workspace"),
     krea2AssistedLab: $("#krea2-assisted-lab-workspace"),
+    mhAssistedLab: $("#mh-assisted-lab-workspace"),
     creationBatch: $("#creation-batch-workspace"),
     krea2EditLab: $("#krea2-edit-lab-workspace"),
     qwenEditLab: $("#qwen-edit-lab-workspace"),
@@ -31,6 +32,7 @@
   const workspaces = new Map([
     ["change-view", elements.changeView],
     ["krea2-assisted-lab", elements.krea2AssistedLab],
+    ["mh-assisted-lab", elements.mhAssistedLab],
     ["creation-batch", elements.creationBatch],
     ["krea2-edit-lab", elements.krea2EditLab], ["i2v-direct", elements.i2vDirect],
     ["qwen-edit-lab", elements.qwenEditLab],
@@ -57,6 +59,7 @@
     const imageLabActive = [
       "change-view",
       "krea2-assisted-lab",
+      "mh-assisted-lab",
       "creation-batch",
       "krea2-edit-lab",
       "qwen-edit-lab",

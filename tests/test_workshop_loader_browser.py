@@ -21,7 +21,7 @@ class WorkshopLoaderBrowserTests(unittest.TestCase):
         if not browsers:
             self.skipTest("local Chromium or Chrome not installed")
         templates = "".join(re.findall(r"<template\b.*?</template>", (STATIC / "index.html").read_text(encoding="utf-8"), re.S))
-        modes = ["krea2-assisted-lab", "krea2-edit-lab", "qwen-edit-lab", "minimax-edit-lab", "image-journey", "creation-batch"]
+        modes = ["krea2-assisted-lab", "mh-assisted-lab", "krea2-edit-lab", "qwen-edit-lab", "minimax-edit-lab", "image-journey", "creation-batch"]
         markup = '<meta charset="utf-8">' + templates + '<header class="topbar"></header><pre id="result">PENDING</pre>'
         markup += '<button data-lab-view="change-view">Image</button><button data-lab-view="recipes">Recipes</button>'
         markup += ''.join(f'<button data-image-lab-mode="{mode}">{mode}</button><main id="{mode}-workspace" hidden></main>' for mode in modes)
@@ -66,6 +66,17 @@ class WorkshopLoaderBrowserTests(unittest.TestCase):
         setup = f"sessionStorage.setItem('panelforge.lab.last-view.v1','{saved}');"
         harness = "document.addEventListener('DOMContentLoaded',async()=>{try{await settle();" + scenario + ";document.querySelector('#result').textContent='PASS';}catch(error){document.querySelector('#result').textContent='FAIL: '+error.stack;}});"
         self.run_browser(browsers[-1], markup + '<script>' + setup + bootstrap + source + core + harness + '</script>')
+
+    def test_mh_loads_once_without_loading_edit_or_video_workshops(self):
+        self.scenario(r"""
+          check(downloads.join(',')==='mh-assisted.js','only MH is downloaded on restoration');
+          const root=document.querySelector('#mh-assisted-lab-workspace');
+          check(!root.hidden&&root.inert,'restored MH waits for its bindings');
+          await drain();check(!root.inert,'MH becomes interactive');
+          document.querySelector('[data-image-lab-mode="krea2-assisted-lab"]').click();
+          document.querySelector('[data-image-lab-mode="mh-assisted-lab"]').click();await settle();
+          check(downloads.length===1,'returning to MH does not execute its script twice');
+        """, saved="mh-assisted-lab")
 
     def test_first_click_blocks_unbound_controls_and_concurrent_clicks_share_downloads(self):
         self.scenario(r"""

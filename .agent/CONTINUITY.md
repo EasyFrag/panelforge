@@ -1,5 +1,22 @@
 # CONTINUITY
 
+## Version GitHub 2026-10-28 — Création Assistée MH V1
+
+### Goal
+- Publier la version incluant Création Assistée MH sur `EasyFrag/panelforge`, à la demande explicite de l’utilisateur, et expliquer les 223 changements affichés par l’éditeur.
+
+### Current state
+- Implémentation MH terminée et synchronisée vers le checkout du Lab `D:/Code/panelforge-krea2-flux` lors de la tâche précédente. Les empreintes des 19 fichiers de code/tests/guide sont toujours identiques à `mh-assisted-20261028/sync-final.json`. Atelier Image Lab, presets existants, langue anglais/chinois, directions artistiques, conversation, réglages MiniMax et historique ; une pose avec son angle et/ou une autre image obligatoire, images fixes uniquement. Guide : `docs/mh-assisted.md`.
+- Catalogue personnel installé : 288 poses / 1 439 vues depuis AI Pose Gallery, index dans le workspace partagé ; médias téléchargés à la demande et exclus du dépôt. Tests ajoutés mais non exécutés ; contrôles statiques réussis. Aucun appel LLM, rendu ou redémarrage de service pour la validation. L’enregistrement d’un essai MH comme nouveau preset n’est pas proposé dans cette V1.
+- Version : branche `snapshots/mh-assisted-v1-2026-10-28`, à la suite de la sauvegarde publiée `3e2283dd1908ff524d6bbd69b9b38e828328a9e8`. La destination publique exacte a déjà été autorisée par l’utilisateur, qui demande maintenant la publication de l’implémentation. Notes : `docs/releases/mh-assisted-v1-2026-10-28.md`. Preuves de préparation/publication dans `.agent/diagnostics/mh-assisted-release-20261028/`.
+- Le compteur initial de 223 correspond exactement à 93 fichiers modifiés et 130 non suivis par la branche courante `master`, toujours à `a5dc16e` du 19 octobre. Les sauvegardes récentes sont sur des branches distinctes ; elles n’ont pas déplacé `master` ni changé son index. Le compteur inclut donc les évolutions antérieures et des fichiers locaux, et ne représente pas 223 modifications causées par MH. La publication d’une branche de version ne nettoie pas ce compteur.
+- La continuité présente au début de cette tâche contenait encore le cadrage. Les empreintes de l’implémentation ont été contrôlées et son état effectif est rétabli dans cette note, en conservant les entrées antérieures.
+
+### Next steps
+- L’utilisateur redémarre le Lab au moment compatible avec ses productions puis recharge le navigateur pour activer le nouvel atelier.
+- Tests à lancer par l’utilisateur : `python -m unittest discover -s tests -p "test_mh_assisted*.py"`, `python -m unittest discover -s tests -p "test_pose_catalog.py"`, puis `python -m unittest discover -s tests`. La qualité et la fidélité des poses restent à qualifier sur les premiers essais.
+- Une éventuelle consolidation de la branche de travail et le classement des fichiers locaux constituent une opération distincte de cette publication ; aucun reset, nettoyage ou basculement de branche effectué.
+
 ## Cadrage 2026-10-28 — création MiniMax avec références de poses
 
 ### Goal
@@ -666,6 +683,25 @@
 - Les patches 3 (préparation des prompts) et 4 (frontend) restent des lots ultérieurs ; ne pas les entamer sans demande. La sauvegarde GitHub correspond à l’état avant patch 2, et non à la publication du résultat du refactoring.
 
 ## Discussion 2026-10-22 — périmètre proposé du patch 2
+
+## Implémentation 2026-10-28 — Création Assistée MH
+
+### Goal
+- Implémenter le périmètre validé dans Image Lab sous le nom exact « Création Assistée MH », après une sauvegarde GitHub de l’état antérieur : création d’images fixes MiniMax H3 avec au moins une référence, catalogue de poses du site, presets personnels, langue anglais/chinois et directions artistiques conservés.
+
+### Current state
+- Sauvegarde publiée et vérifiée sur `https://github.com/EasyFrag/panelforge` : commit `3e2283dd1908ff524d6bbd69b9b38e828328a9e8`, branche `snapshots/pre-mh-assisted-2026-10-28`. Après le refus initial du contrôle automatique pour la destination publique, l’utilisateur a expressément répondu « Publier sur EasyFrag/panelforge » ; le push a ensuite réussi et la référence distante a été vérifiée. Aucun changement de HEAD ni d’index courant. L’implémentation ci-dessous reste locale, sans nouveau commit/push.
+- Onglet ajouté après Création assistée : nom/intention/référence initiale, choix LLM, presets et gestionnaire existants, langue, direction artistique, pose, conversation, prompt éditable, réglages MH, historique, essais, annulation, retour visuel, reprise des choix d’un essai et téléchargements. Chargement JS à la demande ; suivi limité à l’atelier visible, protection des brouillons, des doubles clics et des réponses tardives. Les commandes de création, prompt et rendu ont des identifiants pour éviter les doublons après une réponse perdue.
+- Une pose et un angle actifs, facultatifs si une autre référence de rendu est présente ; une pose seule suffit. Le popup regroupe les angles et propose recherche, famille, catégorie et pagination. La pose décrit la posture et le point de vue ; le prompteur évite de recopier le mannequin gris. L’exemple artistique du preset est réservé à l’assistant et ne remplace pas la référence obligatoire ; les paramètres techniques KREA ne sont pas appliqués à MH. Cette V1 sélectionne les presets existants, mais ne propose pas encore d’enregistrer un essai MH comme nouveau preset personnel.
+- API `/api/image-lab/mh-assisted`, stockage séparé `workspace/mh_edits`, politique domaine et prompteur `mh.assisted@1.0.0` dédiés. Cycle de projet, exports, file de travail et rendu réutilisent le service partagé et le manifeste MiniMax H3 Still existant. Chaque essai conserve ses références effectives, pose, angle, preset, direction, langue, prompt et réglages ; les choix ultérieurs ne modifient pas les essais. Aucune vidéo, création sans référence, édition de squelette, poses multiples distinctes ou fonction batch ajoutée.
+- Catalogue personnel installé dans le workspace partagé : `workspace/catalogs/ai-pose-gallery/catalog.json`, 288 poses / 1 439 vues, révision `0fad6789e4d65f15205fc295acb3405982b63b3fd97a2e4c05a157387647a192`. Index lu comme JSON sans exécuter le site ; chemins/origine/taille vérifiés, images contrôlées avant cache. Miniatures et PNG téléchargés à la demande, sans médias de la galerie dans le dépôt. Aucun téléchargement d’image ni génération effectué pour cette installation de l’index.
+- 19 fichiers de code, tests et guide synchronisés vers `D:/Code/panelforge-krea2-flux` après contrôle des versions initiales, avec sauvegardes et vérification des empreintes finales. Ce checkout est celui du Lab sur le port 7861, utilisant le workspace `D:/Code/panelforge/workspace`. Sa continuité est préservée et reçoit cette note. Preuves : `.agent/diagnostics/mh-assisted-20261028/` (`snapshot-local.json`, `review.diff`, `static-checks.json`, `js-syntax.json`, `catalogue-install.json`, `sync-plan.json`, `sync-final.json`, `lab-before/`).
+- Vérifications statiques réussies : syntaxe de 13 modules Python, JS de l’atelier/navigation/chargeur et scénario navigateur, unicité des identifiants HTML, présence des assets et correspondance des contrôles, espaces des ajouts. Tests service/API/catalogue/navigateur ajoutés et navigation/chargement différé étendus, mais NON exécutés conformément à AGENTS.md. Aucun appel LLM, rendu réel ni redémarrage de service. La fidélité des poses et la qualité des prompts restent à qualifier avec les essais utilisateur. Guide : `docs/mh-assisted.md`.
+
+### Next steps
+- L’utilisateur redémarre le Lab au moment compatible avec ses productions, puis recharge la page : backend et assets sont figés par instance. Un rechargement seul avant redémarrage ne suffit pas.
+- Tests laissés à l’utilisateur : `python -m unittest discover -s tests -p "test_mh_assisted*.py"`, `python -m unittest discover -s tests -p "test_pose_catalog.py"`, puis `python -m unittest discover -s tests`. Aucun succès fonctionnel ou navigateur revendiqué avant leur exécution.
+- Premiers essais utilisateur : pose seule, pose + sujet, référence sans pose, changement de langue/preset/direction, plusieurs angles et reprise d’un essai. Les évolutions ultérieures restent à cadrer.
 
 ### Goal
 - Expliquer simplement à l’utilisateur le découpage du serveur et des interfaces HTTP. Demande d’explication uniquement ; le patch 2 n’est pas autorisé à l’implémentation à ce stade.

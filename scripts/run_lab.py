@@ -95,6 +95,9 @@ from panelforge.application.minimax_edit import MinimaxEditService
 from panelforge.infrastructure.presets.minimax_edit import load_minimax_edit_workflow
 from panelforge.infrastructure.minimax_edit_images import PillowMinimaxEditImages
 from panelforge.infrastructure.storage.minimax_edits import LocalMinimaxEditStore
+from panelforge.application.mh_assisted import MhAssistedService
+from panelforge.infrastructure.storage.mh_assisted import LocalMhAssistedStore
+from panelforge.infrastructure.pose_catalog import LocalPoseCatalog
 from panelforge.infrastructure.storage.image_timings import LocalImageTimings
 from panelforge.infrastructure.presets.qwen_edit import load_qwen_edit_workflow
 from panelforge.infrastructure.qwen_edit_images import PillowQwenEditImages
@@ -536,6 +539,14 @@ def build_app(args: argparse.Namespace, *, startup):
         work_coordinator=machine_work, run_timeout=getattr(args, "krea2_edit_run_timeout", 3600.0),
         poll_interval=args.poll_interval,
     )
+    mh_assisted = MhAssistedService(
+        gateway=gateway, image_timings=image_timings,
+        workflow=minimax_edit.workflow, comfy=krea2_edit_comfy, assets=assets,
+        projects=LocalMhAssistedStore(args.workspace), images=PillowMinimaxEditImages(),
+        style_source=krea2_assisted, poses=LocalPoseCatalog(args.workspace),
+        work_coordinator=machine_work, run_timeout=getattr(args, "krea2_edit_run_timeout", 3600.0),
+        poll_interval=args.poll_interval,
+    )
     startup.mark("build.image_services")
     prompt_lab = PromptLabService(
         gateway=gateway,
@@ -775,6 +786,7 @@ def build_app(args: argparse.Namespace, *, startup):
         krea2_edit=krea2_edit,
         qwen_edit=qwen_edit,
         minimax_edit=minimax_edit,
+        mh_assisted=mh_assisted,
         image_journeys=image_journeys,
         story_v2=story_v2,
         cooking_recipes=cooking_recipes,

@@ -9,8 +9,10 @@
   <script src="/static/network-mode.js?v=20260928.1" defer></script>
   <script src="/static/instance-info.js?v=20261022.patch1" defer></script>
   <script src="/static/work-queue.js?v=20261026.global-thermal1" defer></script>
-  <script src="/static/workshop-loader.js?v=1" defer></script>
-  <script src="/static/lab-core.js?v=20261026.creationbatch1" defer></script>
+  <script src="/static/workshop-loader.js?v=20261028.mh1" defer></script>
+  <script src="/static/lab-core.js?v=20261028.mh1" defer></script>
+  <link rel="stylesheet" href="/static/mh-assisted.css?v=20261028.mh1">
+  <template data-lab-script="mh-assisted.js"><script src="/static/mh-assisted.js?v=20261028.mh1" defer></script></template>
   <link rel="stylesheet" href="/static/stories.css?v=20260927.editions1">
   <link rel="stylesheet" href="/static/story-continuity.css?v=20260922.1">
   <template data-lab-script="story-continuity.js"><script src="/static/story-continuity.js?v=20260927.sparse-states" defer></script></template>
@@ -860,6 +862,7 @@
   <main id="change-view-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
       <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
       <button class="active" type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -971,9 +974,103 @@
   </main>
 
 
+  <main id="mh-assisted-lab-workspace" class="krea2-assisted-lab-workspace" hidden>
+    <nav class="image-lab-modebar" aria-label="Ateliers Image Lab">
+      <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
+      <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
+      <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
+      <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
+      <button type="button" data-image-lab-mode="qwen-edit-lab">Modifier avec Qwen</button>
+      <button type="button" data-image-lab-mode="minimax-edit-lab">Modifier avec Minimax</button>
+      <button type="button" data-image-lab-mode="image-journey">Parcours d’images autonome</button>
+    </nav>
+    <aside class="controls krea2-assisted-controls">
+      <div class="title-row"><div><small>MINIMAX · IMAGE</small><h1>Création Assistée MH</h1></div>
+        <button id="mh-refresh" type="button" title="Actualiser les ressources et le projet">Actualiser</button></div>
+      <p id="mh-status" class="muted" role="status"></p>
+      <details id="mh-new-project" class="krea2-assisted-new-project" open>
+        <summary>Nouveau projet</summary>
+        <form id="mh-new-form"><fieldset id="mh-new-fields">
+          <label>Nom<input id="mh-new-name" maxlength="120" required placeholder="Ex. Portrait dans un jardin"></label>
+          <label>Intention<textarea id="mh-new-intention" rows="6" maxlength="12000" placeholder="Décris le sujet, la scène et le résultat souhaité…"></textarea></label>
+          <label>Image de référence<input id="mh-new-reference" type="file" accept="image/png,image/jpeg,image/webp"></label>
+          <small>Une pose ou une image de référence est nécessaire. Les deux peuvent être combinées.</small>
+          <label>Recette d’assistance<select id="mh-new-recipe"><option>V1 · MiniMax H3 Image</option></select></label>
+          <div class="krea2-assisted-preset-choice"><label>Preset personnel<select id="mh-new-preset"><option value="">Sans preset</option></select></label>
+            <label>Langue<select id="mh-new-language"><option value="en">English</option><option value="zh">中文</option></select></label>
+            <button type="button" data-krea2-preset-manage>Gérer</button></div>
+          <small>Le preset guide le style ; les paramètres de rendu sont ceux de MiniMax.</small>
+          <div class="mh-choice"><img id="mh-new-art-image" alt="Direction artistique" hidden><div><b id="mh-new-art-name">Sans direction artistique</b></div>
+            <button id="mh-new-art-choose" type="button">Choisir</button><button id="mh-new-art-clear" type="button" hidden>Retirer</button></div>
+          <div class="mh-choice"><img id="mh-new-pose-image" alt="Pose sélectionnée" hidden><div><b id="mh-new-pose-name">Sans pose</b><small>Posture et point de vue</small></div>
+            <button id="mh-new-pose-choose" type="button">Choisir une pose</button><button id="mh-new-pose-clear" type="button" hidden>Retirer</button></div>
+          <label>Modèle LLM<select id="mh-new-model" required><option value="">Chargement…</option></select></label>
+          <label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="mh-new-model" checked> Local · Unsloth</label>
+          <button id="mh-create" class="primary" type="submit" disabled>Créer et proposer un prompt</button>
+        </fieldset></form>
+      </details>
+      <section class="krea2-assisted-recent-projects"><h2>Projets récents</h2><p id="mh-history-empty" class="muted">Aucun projet.</p>
+        <ul id="mh-history" class="krea2-assisted-history"></ul></section>
+    </aside>
+    <div class="content krea2-assisted-content">
+      <p id="mh-error" class="error" role="alert" hidden></p>
+      <section id="mh-editor" class="results" hidden>
+        <div class="result-head"><div><small>PROJET CONVERSATIONNEL · IMAGE</small><h2 id="mh-title"></h2></div>
+          <a id="mh-download" class="button">Télécharger le projet</a></div>
+        <fieldset id="mh-editor-fields">
+          <section class="mh-creative"><div class="krea2-assisted-preset-choice">
+            <label>Preset personnel<select id="mh-active-preset"><option value="">Sans preset</option></select></label>
+            <label>Langue du prompt<select id="mh-active-language"><option value="en">English</option><option value="zh">中文</option></select></label>
+            <button type="button" data-krea2-preset-manage>Gérer</button></div>
+            <div class="mh-choice"><img id="mh-active-art-image" alt="Direction artistique" hidden><div><b id="mh-active-art-name">Sans direction artistique</b></div>
+              <button id="mh-active-art-choose" type="button">Choisir</button><button id="mh-active-art-clear" type="button" hidden>Retirer</button></div>
+            <div class="mh-choice"><img id="mh-active-pose-image" alt="Pose sélectionnée" hidden><div><b id="mh-active-pose-name">Sans pose</b><small>Posture et point de vue</small></div>
+              <button id="mh-active-pose-choose" type="button">Choisir une pose</button><button id="mh-active-pose-clear" type="button" hidden>Retirer</button></div>
+          </section>
+          <details class="mh-references" open><summary>Images de référence</summary><div id="mh-references" class="mh-reference-grid"></div>
+            <div class="mh-reference-upload"><label>Ajouter une image<input id="mh-reference-file" type="file" accept="image/png,image/jpeg,image/webp"></label>
+              <label>Utilisation<select id="mh-reference-usage"><option value="render">Référence de génération</option><option value="assistant">Inspiration pour l’assistant</option></select></label>
+              <label>Rôle<input id="mh-reference-role" maxlength="300" placeholder="Ex. Identité du personnage uniquement"></label>
+              <button id="mh-reference-add" type="button">Ajouter</button></div></details>
+          <section class="krea2-assisted-conversation-panel"><h3>Discussion</h3><div id="mh-conversation" class="krea2-assisted-conversation"></div>
+            <p id="mh-feedback" class="muted" hidden></p><button id="mh-feedback-clear" type="button" hidden>Retirer le retour visuel</button>
+            <label>Modèle LLM<select id="mh-model"></select></label><label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="mh-model" checked> Local · Unsloth</label>
+            <label>Votre message<textarea id="mh-message" rows="4" maxlength="12000" placeholder="Précise le rendu ou demande un ajustement…"></textarea></label>
+            <div class="actions"><button id="mh-chat" class="primary" type="button">Affiner le prompt</button><button id="mh-save" type="button">Enregistrer les modifications</button></div>
+          </section>
+          <section class="krea2-assisted-prompt-panel"><label><b>Prompt MiniMax éditable</b><textarea id="mh-prompt" rows="12" maxlength="24000"></textarea></label>
+            <p id="mh-prompt-state" class="muted"></p><button id="mh-copy" type="button">Copier le prompt</button></section>
+          <section class="krea2-edit-settings"><h3>Paramètres du prochain rendu</h3><div class="krea2-edit-settings-grid">
+            <label>Ratio<select id="mh-ratio"></select></label>
+            <label>Résolution<select id="mh-resolution"><option value="1">1 MP</option><option value="2" selected>2 MP</option><option value="4">4 MP</option><option value="8">8 MP</option><option value="preset">Preset MiniMax · 7,2 MP</option></select></label>
+            <label>Steps<input id="mh-steps" type="number" min="1" max="100" value="18"></label>
+            <label>Seed<input id="mh-seed" type="text" inputmode="numeric" pattern="[0-9]+"></label>
+            <label><input id="mh-reuse-seed" type="checkbox"> Réutiliser la seed</label>
+            <label>Résolution des références<select id="mh-reference-mp"><option value="1">1 MP</option><option value="2">2 MP</option></select></label>
+          </div><p id="mh-render-state" class="muted" role="status"></p>
+          <div class="actions"><button id="mh-render" class="primary" type="button">Lancer un rendu</button></div></section>
+        </fieldset>
+        <section><h3>Essais</h3><div id="mh-attempts" class="mh-attempts"></div></section>
+      </section>
+      <section id="mh-welcome" class="results"><h2>Créer une image avec une pose</h2><p>Choisis tes références, ton preset et ta direction artistique. L’assistant prépare le prompt ; tu peux ensuite l’affiner et lancer tes essais.</p></section>
+    </div>
+    <dialog id="mh-picker" class="mh-picker"><div class="title-row"><h2 id="mh-picker-title">Choisir une pose</h2><button id="mh-picker-close" type="button">Fermer</button></div>
+      <div class="mh-picker-filters"><input id="mh-picker-search" type="search" placeholder="Rechercher un nom, une catégorie ou un identifiant…" aria-label="Rechercher dans le catalogue">
+        <select id="mh-picker-family" aria-label="Famille de poses"></select><select id="mh-picker-category" aria-label="Catégorie"></select>
+        <select id="mh-picker-angle" aria-label="Angle de vue"></select><button id="mh-picker-install" type="button">Installer le catalogue</button></div>
+      <p id="mh-picker-state" class="muted" role="status"></p><div id="mh-picker-grid" class="mh-picker-grid"></div>
+      <div class="actions"><button id="mh-picker-prev" type="button">Précédent</button><span id="mh-picker-page"></span><button id="mh-picker-next" type="button">Suivant</button></div>
+      <p id="mh-picker-source" class="muted">Catalogue de poses <a href="https://ai-pose-gallery.pages.dev/" target="_blank" rel="noopener noreferrer">AI Pose Gallery</a> · références conservées localement pour ton usage.</p>
+    </dialog>
+    <dialog id="mh-image-dialog" class="mh-image-dialog"><button id="mh-image-close" type="button">Fermer</button><img id="mh-image-full" alt="Aperçu de l’image"></dialog>
+    <dialog id="mh-trace-dialog" class="mh-picker"><div class="title-row"><h2>Trace de l’assistant</h2><button id="mh-trace-close" type="button">Fermer</button></div><pre id="mh-trace"></pre></dialog>
+  </main>
+
   <main id="creation-batch-workspace" class="krea2-assisted-lab-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Ateliers Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
       <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -1045,6 +1142,7 @@
   <main id="krea2-assisted-lab-workspace" class="krea2-assisted-lab-workspace">
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button class="active" type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
       <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -1347,6 +1445,7 @@
   <main id="qwen-edit-lab-workspace" class="qwen-v2-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
       <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -1478,6 +1577,7 @@
   <main id="image-journey-workspace" class="ij-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
       <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -1611,6 +1711,7 @@ Conserver exactement le cadrage, le point de vue et les éléments fixes environ
   <main id="minimax-edit-lab-workspace" class="qwen-v2-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
       <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>
@@ -1742,6 +1843,7 @@ Conserver exactement le cadrage, le point de vue et les éléments fixes environ
   <main id="krea2-edit-lab-workspace" class="krea2-edit-lab-workspace" hidden>
     <nav class="image-lab-modebar" aria-label="Modes Image Lab">
       <button type="button" data-image-lab-mode="krea2-assisted-lab">Création assistée</button>
+      <button type="button" data-image-lab-mode="mh-assisted-lab">Cr?ation Assist?e MH</button>
       <button type="button" data-image-lab-mode="creation-batch">Création batch</button>
       <button type="button" data-image-lab-mode="change-view">Changer la vue</button>
       <button class="active" type="button" data-image-lab-mode="krea2-edit-lab">Modifier avec KREA2</button>

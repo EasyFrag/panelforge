@@ -41,6 +41,7 @@ def create_app(
     krea2_edit: Krea2EditService | None = None,
     qwen_edit=None,
     minimax_edit=None,
+    mh_assisted=None,
     image_journeys=None,
     story_v2=None,
     cooking_recipes=None,
@@ -87,6 +88,7 @@ def create_app(
             ("krea2", krea2_assisted, "start_render_worker"),
             ("creation_batch", creation_batch, "start_worker"),
             ("qwen", qwen_edit, "start_worker"), ("minimax", minimax_edit, "start_worker"),
+            ("mh_assisted", mh_assisted, "start_worker"),
             ("image_journeys", image_journeys, "start_worker"),
             ("factory", video_factory, "start"), ("story_v2", story_v2, "start_worker"),
             ("recipes", cooking_recipes, "start_worker"), ("mobile", mobile_server, "start"),
@@ -105,6 +107,8 @@ def create_app(
         try:
             yield
         finally:
+            if mh_assisted is not None:
+                await asyncio.to_thread(mh_assisted.stop_worker)
             if creation_batch is not None:
                 await asyncio.to_thread(creation_batch.stop_worker)
             if cooking_recipes is not None:
@@ -155,6 +159,10 @@ def create_app(
     from .minimax_edit_web import minimax_edit_router
 
     app.include_router(minimax_edit_router(minimax_edit))
+
+    from .mh_assisted_web import mh_assisted_router
+
+    app.include_router(mh_assisted_router(mh_assisted))
 
     from .image_journeys_web import image_journeys_router
 

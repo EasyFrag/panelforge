@@ -19,12 +19,14 @@
     social: {files: ["social-lab.js"]},
     analysis: {files: ["media-analysis-media.js", "media-analysis-speech.js", "media-analysis.js"]},
     batch: {files: ["creation-batch.js"]},
+    mh: {files: ["mh-assisted.js"]},
   };
   const views = {
     "i2v-direct": "video", "ref2v-direct": "video", stories: "stories",
     "krea2-edit-lab": "edit", "qwen-edit-lab": "qwen", "minimax-edit-lab": "qwen",
     "image-journey": "journey", "image-transitions": "transitions", "story-v2": "storyV2",
     recipes: "recipes", "social-lab": "social", "media-analysis": "analysis", "creation-batch": "batch",
+    "mh-assisted-lab": "mh",
   };
   // Only awaitable public actions are bridged. Synchronous rendering helpers
   // are eager, or loaded as explicit dependencies before their consumers.
