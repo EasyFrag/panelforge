@@ -9,5 +9,23 @@ htmlcov/
 # Local diagnostic scripts, reports, and backups
 /.agent/diagnostics/
 
+# Local working archives and generated deliverables, retained on disk.
+/.agent/factory-base-migration-2026-09-26.json
+/.agent/lips-contact-version/
+/docs/proposals/download34-minimal-brief-settings-guide-2026-09-28.md
+/docs/proposals/download35-minimal-brief-settings-guide-2026-09-28.md
+/docs/proposals/factory-eta-mobile-feasibility-2026-09-27.md
+/docs/proposals/factory-eta/
+/docs/proposals/factory-monitoring-patch-plan-2026-09-27.md
+/docs/proposals/little-men-solutions-audit-2026-09-28.md
+/docs/proposals/story-moula-builder-audit-2026-09-27.md
+/docs/proposals/story-moula-minimal-patch-alignment-2026-09-27.md
+/docs/proposals/story-pool-jealous-friend-2026-09-28.md
+/docs/proposals/story-recent-runs-corrective-plan-2026-09-28.md
+/docs/releases/snapshot-pre-factory-monitoring-2026-09-27.md
+/lancementwork
+/output/imagegen/
+/output/poses-mannequins-adultes-krea.csv
+
 workspace/*
 !workspace/.gitkeep

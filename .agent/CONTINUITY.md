@@ -1,5 +1,25 @@
 # CONTINUITY
 
+## État consolidé 2026-10-28 — publication et tri documentaire
+
+### Goal
+- Terminé : publier les évolutions applicatives approuvées, puis arbitrer les écarts documentaires et conserver les fichiers de travail locaux.
+
+### Current state
+- Dernier commit applicatif publié sur `master` de `EasyFrag/panelforge` : `4e4b9f41667201d3ba74cd426bd626bf72d8145f`. Il contient 35 fichiers de code/tests/workflows/attributs et le guide MH. La version MH initiale `c4e76c2` avait auparavant été promue depuis sa branche snapshot ; ancien master conservé dans `backups/master-before-mh-promotion-2026-10-28`. Publication normale sans force-push.
+- MiniMax Still : quatre LoRA optionnels, activation et force individuelles, catalogue explicite ComfyUI sous `minmax_nsfw/`, choix persistés par projet et essai, vérification avant nouvelle soumission. Manifeste `image.edit/minimax-h3-still/1.4.0`, anciens graphes conservés, comportement antérieur sans LoRA actif. Compatibilité visuelle des adaptateurs à qualifier.
+- Création batch : choix KREA2 deux passes ou Flux Klein, Flux par défaut, Moody Beta, mode conservé dans les reprises et variantes. Poses MH : traductions françaises, filtres dépendants et support d'un catalogue personnel séparé ; les deux références personnelles et les autres médias restent dans le workspace local.
+- Code livré précédemment dans `D:/Code/panelforge-krea2-flux`, avec workspace partagé `D:/Code/panelforge/workspace`. Aucun service redémarré pendant les publications ou le tri.
+- Contrôles de publication : syntaxe AST de 25 fichiers Python, syntaxe V8 de cinq scripts sans exécution, JSON, empreintes et liaisons des workflows, périmètre exact des 36 fichiers du commit et conservation des 1 891 chemins examinés. Tests applicatifs NON exécutés selon AGENTS.md ; aucun LLM ni rendu de vérification. Preuves : `.agent/diagnostics/application-publication-20261028/`.
+- Documentation : guide Histoire V2 complet et six notes de snapshots rétablis depuis la version publiée. Les anciennes propositions, maquettes, patches, backlog et livrables restent à leurs chemins habituels ; exclusions Git ciblées dans `.gitignore`, sans ignorer globalement docs ou le code. Aucun fichier supprimé ou déplacé.
+- Sauvegarde avant arbitrage : `.agent/diagnostics/document-cleanup-20261028/before/` (63 fichiers, dont le journal détaillé intégral et l'ancien guide), `backup-manifest.json`, `all-files-before.json` et `index.before`. Les 24 écarts sans différence de contenu ont été résolus par actualisation de l'index. Le journal partagé est synthétisé ici ; l'historique publié antérieur ci-dessous est conservé. Seules les fins de ligne du journal ont été normalisées.
+- Les diagnostics précédents restent dans `.agent/diagnostics/git-promotion-20261028/`, `minimax-still-loras-20261028/`, `creation-batch-mode-20261028/`, `mh-personal-poses-20261028/` et `mh-pose-picker-20261028/`.
+
+### Next steps
+- Tests fonctionnels à lancer par l'utilisateur : `python -m unittest discover -s tests`, ou les tests ciblés MiniMax LoRA, création batch et catalogue de poses indiqués dans les guides. Aucune validation visuelle en production revendiquée.
+- Charger les changements du Lab lors du prochain redémarrage choisi par l'utilisateur, puis recharger le navigateur. Ne pas interrompre les générations concurrentes.
+- Les exclusions concernent les archives locales identifiées ; les nouveaux changements applicatifs et documentaires utiles doivent continuer à être versionnés explicitement.
+
 ## Version GitHub 2026-10-28 — Création Assistée MH V1
 
 ### Goal
@@ -8,7 +28,7 @@
 ### Current state
 - Implémentation MH terminée et synchronisée vers le checkout du Lab `D:/Code/panelforge-krea2-flux` lors de la tâche précédente. Les empreintes des 19 fichiers de code/tests/guide sont toujours identiques à `mh-assisted-20261028/sync-final.json`. Atelier Image Lab, presets existants, langue anglais/chinois, directions artistiques, conversation, réglages MiniMax et historique ; une pose avec son angle et/ou une autre image obligatoire, images fixes uniquement. Guide : `docs/mh-assisted.md`.
 - Catalogue personnel installé : 288 poses / 1 439 vues depuis AI Pose Gallery, index dans le workspace partagé ; médias téléchargés à la demande et exclus du dépôt. Tests ajoutés mais non exécutés ; contrôles statiques réussis. Aucun appel LLM, rendu ou redémarrage de service pour la validation. L’enregistrement d’un essai MH comme nouveau preset n’est pas proposé dans cette V1.
-- Version : branche `snapshots/mh-assisted-v1-2026-10-28`, à la suite de la sauvegarde publiée `3e2283dd1908ff524d6bbd69b9b38e828328a9e8`. La destination publique exacte a déjà été autorisée par l’utilisateur, qui demande maintenant la publication de l’implémentation. Notes : `docs/releases/mh-assisted-v1-2026-10-28.md`. Preuves de préparation/publication dans `.agent/diagnostics/mh-assisted-release-20261028/`.
+- Version publiée et référence distante vérifiée : commit `c4e76c200114879691de10fd4722b965c9ff537c`, branche `snapshots/mh-assisted-v1-2026-10-28`, à la suite de la sauvegarde publiée `3e2283dd1908ff524d6bbd69b9b38e828328a9e8`. La destination publique exacte a déjà été autorisée par l’utilisateur, qui a demandé la publication de l’implémentation. Notes : `docs/releases/mh-assisted-v1-2026-10-28.md`. Preuves dans `.agent/diagnostics/mh-assisted-release-20261028/publication.json` ; HEAD et index courant vérifiés inchangés.
 - Le compteur initial de 223 correspond exactement à 93 fichiers modifiés et 130 non suivis par la branche courante `master`, toujours à `a5dc16e` du 19 octobre. Les sauvegardes récentes sont sur des branches distinctes ; elles n’ont pas déplacé `master` ni changé son index. Le compteur inclut donc les évolutions antérieures et des fichiers locaux, et ne représente pas 223 modifications causées par MH. La publication d’une branche de version ne nettoie pas ce compteur.
 - La continuité présente au début de cette tâche contenait encore le cadrage. Les empreintes de l’implémentation ont été contrôlées et son état effectif est rétabli dans cette note, en conservant les entrées antérieures.
 
