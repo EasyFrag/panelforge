@@ -18,7 +18,7 @@ from panelforge.domain.h3_render import H3VideoLoraStack
 from panelforge.domain.h3_render import derive_h3_render_input_mode
 from panelforge.domain.worker_visual_policy import WorkerVisualPolicy
 from panelforge.domain.prompt_composition import PreparationIntent
-from panelforge.domain.localized_speech import LOCALIZED_THANKS_V1, LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4, STABLE_THANKS_LANGUAGES
+from panelforge.domain.localized_speech import LOCALIZED_THANKS_V1, LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4, LOCALIZED_THANKS_V5, LOCALIZED_THANKS_V6, LOCALIZED_THANKS_V7, LOCALIZED_THANKS_V8, LOCALIZED_THANKS_VARIETY_V8, STABLE_THANKS_LANGUAGES
 from panelforge.domain.video_factory import is_experimental_little_men
 from panelforge.domain.prompt_writer import supports_writer_model
 from panelforge.domain.dlss import DlssSettings, dlss_progress_ratio
@@ -29,6 +29,9 @@ from panelforge.domain.video_factory import configuration, ROLE_USES, readiness,
 from .prompt_lab import NewReference, StreamEventKind
 from .production_resources import llm_compute_resource
 from .video_factory import FactoryCancelled, FactoryWait
+from .little_men_causal import validate_no_umbrella, validate_variety_choice
+from .little_men_standard import validate_variety_choice as validate_standard_variety_choice
+from panelforge.domain.little_men_variety import is_variety
 
 
 class FactoryWorkflows:
@@ -384,7 +387,9 @@ class FactoryWorkflows:
         localized = is_experimental_little_men(config)
         language = config.get("little_men_language", "auto")
         selection = runtime.get("thanks_selection") if localized else None
-        policy = ({2: LOCALIZED_THANKS_V2, 3: LOCALIZED_THANKS_V3, 4: LOCALIZED_THANKS_V4}.get(
+        policy = ({2: LOCALIZED_THANKS_V2, 3: LOCALIZED_THANKS_V3, 4: LOCALIZED_THANKS_V4,
+                   5: LOCALIZED_THANKS_V5, 6: LOCALIZED_THANKS_V6, 7: LOCALIZED_THANKS_V7,
+                   8: LOCALIZED_THANKS_VARIETY_V8 if is_variety(config) else LOCALIZED_THANKS_V8}.get(
             selection.get("version") if selection else None, LOCALIZED_THANKS_V1)
             if localized else None)
         requested = selection.get("requested_language") if selection else (
@@ -428,12 +433,18 @@ class FactoryWorkflows:
             self.composition.approve(session.session_id, stage)
         document = self.composition.get(session.session_id).document(CompositionStage.BEAT_SHEET)
         selection = item["runtime"].get("thanks_selection")
-        if selection and selection.get("version") in (2, 3, 4) and document.active_revision:
+        if selection and selection.get("version") in (2, 3, 4, 5, 6, 7, 8) and document.active_revision:
             plan = json.loads(document.active_revision.content)
             languages = plan.get("spoken_languages", [])
             if len(languages) != 1 or languages[0] not in STABLE_THANKS_LANGUAGES:
                 raise ValueError("Le Plan doit choisir une des 11 langues de remerciement.")
             selection = {**selection, "language": languages[0], "words": plan["spoken_lines"][0]}
+            if selection["version"] in (6, 7):
+                validate_variety_choice(plan, selection["variety"])
+                selection["variety_choice"] = deepcopy(plan["variety_choice"])
+            elif selection["version"] == 8 and is_variety(item["config"]):
+                validate_standard_variety_choice(plan, selection["variety"])
+                selection["variety_choice"] = deepcopy(plan["variety_choice"])
             if selection["group"] == "visual":
                 selection["reason"] = "Ambiance et préférence fixée dans le Plan"
             checkpoint(thanks_selection=selection)
@@ -504,6 +515,11 @@ class FactoryWorkflows:
 
     def _video(self, item, checkpoint, cancelled, progress):
         runtime, config = item["runtime"], item["config"]
+        selection = runtime.get("thanks_selection")
+        # A frozen preparation remains authoritative. New direct prompts retain
+        # the explicit preset version even after their intention is customized.
+        direction_version = selection.get("version") if selection else config.get("little_men_direction_version")
+        causal_help = is_experimental_little_men(config) and direction_version in (5, 6, 7, 8)
         if cancelled() and not runtime.get("attempt_id"):
             raise FactoryCancelled()
         project = self._project(item, checkpoint, cancelled, progress)
@@ -517,6 +533,9 @@ class FactoryWorkflows:
             runtime.update(attempt_id=None, explicit_retry=False)
             attempt = None
         if attempt is None:
+            render_prompt = item["steps"]["prompt"]["output"].get("text") or config["final_prompt"]
+            if causal_help:
+                validate_no_umbrella(render_prompt)
             setup = config["render"]
             raw = setup["settings"]
             seed = int(raw.get("seed", 0)) if setup.get("seed_locked", True) else self.render.new_seed()
@@ -524,7 +543,7 @@ class FactoryWorkflows:
                 duration_seconds=raw["duration_seconds"], steps=raw["steps"], seed=seed,
                 seed_locked=bool(setup.get("seed_locked", True)))
             project = self.render.prepare_attempt(project.project_id, batch_mode=True,
-                prompt=item["steps"]["prompt"]["output"].get("text") or config["final_prompt"], settings=settings,
+                prompt=render_prompt, settings=settings,
                 music_enabled=setup.get("music_enabled", False), spectrum_enabled=setup.get("spectrum_enabled", False),
                 initial_megapixels=setup.get("initial_megapixels", .2), force_upscale=setup.get("force_upscale", False),
                 recipe_id=setup["recipe"]["id"], recipe_version=setup["recipe"]["version"],
@@ -539,6 +558,10 @@ class FactoryWorkflows:
             project = self.render.cancel_attempt(project.project_id, attempt.attempt_id)
             attempt = project.attempt(attempt.attempt_id)
         if attempt.status.value == "created":
+            # Recheck the actual frozen input before admission, including a resumed
+            # unsent attempt. Already queued/running/completed work is never changed.
+            if causal_help:
+                validate_no_umbrella(attempt.effective_prompt)
             try:
                 self.render.queue_attempt(project.project_id, attempt.attempt_id, operation_label=f"Usine · {item['name']}")
             except ValueError as error:

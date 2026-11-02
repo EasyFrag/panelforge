@@ -41,11 +41,17 @@ class MhAssistedBrowserTests(unittest.TestCase):
             {id:'solo_nsfw',pose_id:'solo-nsfw',number:'P062',name:'Genoux à la poitrine',family:'Corps entier · NSFW',category:'Allongé',angle:'Profil'}
           ];
           let filterFixtures=false;
-          let project=null, lostRender=true;
+          const personalPoses=[
+            {id:'personal_v1',pose_id:'personal-group',number:'K001',name:'Posture revue',family:'Mes poses',category:'Assis',angle:'Face',elevation:'Plongée',view_label:'Face · plongée · ligne 1 · rendu 1'},
+            {id:'personal_v2',pose_id:'personal-group',number:'K001',name:'Posture revue',family:'Mes poses',category:'Assis',angle:'Face',elevation:'Hauteur du sujet',view_label:'Face · ligne 2 · rendu 2'},
+            {id:'personal_back',pose_id:'personal-group',number:'K001',name:'Posture revue',family:'Mes poses',category:'Assis',angle:'Dos',view_label:'Dos · ligne 3 · rendu 1',confidence:'low',review_note:'Appuis masqués.'}
+          ];
+          let project=null, lostRender=true, lostReferences=true;
           const current=()=>project.stages[0];
           function applyPose(id){
             const p=poses.find(p=>p.id===id);current().creative.pose=p?{...p,asset_id:id,reference_id:'mh-pose'}:null;
-            current().references=p?[{id:'mh-pose',asset_id:id,name:'Pose',role:'Posture',usage:'render',active:true}]:[];
+            current().references=current().references.filter(r=>r.id!=='mh-pose');
+            if(p)current().references.unshift({id:'mh-pose',asset_id:id,name:'Pose',role:'Posture',usage:'render',active:true});
           }
           window.fetch=async(url,options={})=>{
             calls.push([url,options]);const method=options.method||'GET';let data;
@@ -54,7 +60,7 @@ class MhAssistedBrowserTests(unittest.TestCase):
             else if(url.includes('/loras'))data={models:['minmax_nsfw/style.safetensors'],supported:true,maximum:4};
             else if(url.endsWith('/style-presets'))data={presets:[preset]};
             else if(url.endsWith('/art-styles'))data={styles:[art]};
-            else if(url.endsWith('/poses'))data={entries:filterFixtures?[...poses,...filterPoses]:poses,catalog:{state:'ready',pose_count:1,image_count:2,categories:['Debout'],families:['Corps entier'],angles:['Face','Profil','Trois-quarts']}};
+            else if(url.endsWith('/poses'))data={entries:filterFixtures?[...poses,...filterPoses,...personalPoses]:poses,catalog:{state:'ready',original_previews:true,pose_count:1,image_count:2,categories:['Debout'],families:['Corps entier'],angles:['Face','Profil','Trois-quarts','Plongée','Dos']}};
             else if(url.endsWith('/projects')&&method==='GET')data={projects:project?[{id:project.id,name:project.name,thumbnail_asset_id:'pose_side'}]:[]};
             else if(url.endsWith('/projects')&&method==='POST'){
               const f=options.body;
@@ -62,7 +68,17 @@ class MhAssistedBrowserTests(unittest.TestCase):
                 id:'stage-one',revision:0,mode:'composition',source_asset_id:null,settings:clone(settings),model_id:f.get('model_id'),
                 draft:f.get('intention'),prompt:'',prompt_ready:false,render_dimensions:[1088,1920],references:[],messages:[],attempts:[],feedback_attempt_id:null,
                 creative:{prompt_language:f.get('prompt_language'),style_preset:f.get('preset_id')?preset:null,art_direction:f.get('art_style_id')?art:null,pose:null}}]};
+              current().references=JSON.parse(f.get('reference_details')||'[]').map((m,i)=>({...m,id:'ref-'+i,asset_id:'asset-'+i,active:true}));
               applyPose(f.get('pose_id'));data={project:clone(project)};
+            }else if(url.endsWith('/references/batch')){
+              const f=options.body,s=current(),id=f.get('request_id');s.reference_commands||=[];
+              if(!s.reference_commands.some(r=>r.request_id===id)){
+                if(f.get('replace_id'))s.references.find(r=>r.id===f.get('replace_id')).active=false;
+                s.references.push(...JSON.parse(f.get('reference_details')).map((m,i)=>({...m,id:'added-'+id+'-'+i,asset_id:'added-asset-'+id+'-'+i,active:true})));
+                s.reference_commands.push({request_id:id});s.revision++;s.prompt_ready=false;project.version++;
+              }
+              if(lostReferences){lostReferences=false;throw new TypeError('Lost reference response');}
+              data={project:clone(project)};
             }else if(url.endsWith('/creative')){
               const body=JSON.parse(options.body),c=current().creative;
               if('prompt_language' in body.changes)c.prompt_language=body.changes.prompt_language;
@@ -76,12 +92,14 @@ class MhAssistedBrowserTests(unittest.TestCase):
             }else if(url.endsWith('/attempts')){
               const body=JSON.parse(options.body),s=current();
               if(!s.attempts.some(a=>a.request_id===body.request_id))s.attempts.push({id:'attempt-one',request_id:body.request_id,status:'queued',settings:clone(s.settings),
-                dimensions:[1088,1920],context:{creative:clone(s.creative)},prompt:s.prompt});
+                dimensions:[1088,1920],context:{creative:clone(s.creative),references:clone(s.references)},prompt:s.prompt});
               s.revision++;project.version++;
               if(lostRender){lostRender=false;throw new TypeError('Lost render response');}
               data={project:clone(project)};
             }else if(method==='PATCH'){
-              Object.assign(current(),JSON.parse(options.body).changes);current().revision++;project.version++;data={project:clone(project)};
+              const changes=JSON.parse(options.body).changes;Object.assign(current(),changes);
+              if(changes.references)current().prompt_ready=false;
+              current().revision++;project.version++;data={project:clone(project)};
             }else if(project&&url.endsWith('/projects/'+project.id))data={project:clone(project)};
             else throw new Error('Unexpected request '+method+' '+url);
             return {ok:true,status:200,json:async()=>clone(data)};
@@ -125,30 +143,73 @@ class MhAssistedBrowserTests(unittest.TestCase):
             check(el('picker-grid').children.length===1&&options('picker-category').join()==='Allongé','NSFW family is discoverable and filtered');
             el('picker-search').value='no-match';el('picker-search').dispatchEvent(new Event('input'));
             check(el('picker-grid').children.length===0&&options('picker-category').length===0&&options('picker-angle').length===0,'empty results clear unavailable filter options');
+            el('picker-search').value='';el('picker-search').dispatchEvent(new Event('input'));
+            change('picker-family','Mes poses');
+            check(el('picker-grid').children.length===1,'reviewed views share a pose card');
+            const personalCard=el('picker-grid').firstElementChild,personalViews=personalCard.querySelector('select');
+            check(new Set([...personalViews.options].map(o=>o.textContent)).size===3,'same-angle versions have distinct labels');
+            personalViews.value='personal_v2';personalViews.dispatchEvent(new Event('change'));
+            personalCard.querySelector('img').click();
+            check(el('image-full').dataset.requestedSrc.endsWith('/personal_v2/original'),'preview opens selected original, not thumbnail');
+            el('image-close').click();
+            personalViews.value='personal_back';personalViews.dispatchEvent(new Event('change'));
+            check(personalCard.textContent.includes('Classement à confirmer')&&personalCard.textContent.includes('Appuis masqués'),'uncertain classification is visible');
+            change('picker-angle','Plongée');
+            check(el('picker-grid').firstElementChild.querySelector('select').options.length===1,'height filter finds frontal overhead view');
+            change('picker-angle','Dos');
+            check(el('picker-grid').firstElementChild.querySelector('select').value==='personal_back','back angle filter is usable');
             el('picker-close').click();filterFixtures=false;
+            const selectFiles=(input,names)=>{
+              const transfer=new DataTransfer();names.forEach(name=>transfer.items.add(new File(['fixture'],name,{type:'image/png'})));
+              input.files=transfer.files;input.dispatchEvent(new Event('change'));
+            };
+            selectFiles(el('new-reference'),['identity.png','wardrobe.png']);
+            check(el('new-references').querySelectorAll('img').length===2,'immediate previews before creation');
+            check(el('new-reference-count').textContent.includes('3/9'),'pose counts toward the reference limit');
+            const role=el('new-references').querySelector('input[type=text]');role.value='Identity only';role.dispatchEvent(new Event('input'));
+            el('new-references').querySelector('img').click();check(el('image-dialog').open,'preview can be enlarged');el('image-close').click();
+            selectFiles(el('new-reference'),Array.from({length:7},(_,i)=>'extra-'+i+'.png'));
+            check(el('create').disabled,'nine images plus a pose exceed the limit');
+            for(const card of [...el('new-references').children].slice(2)) [...card.querySelectorAll('button')].find(b=>b.textContent==='Retirer').click();
+            check(!el('create').disabled,'removing pending images restores valid selection');
             change('new-name','MH reference fixture');change('new-intention','Create a portrait');
             el('create').click();el('create').click();await settle();
             const creations=calls.filter(([u,o])=>u.endsWith('/projects')&&o.method==='POST');
             check(creations.length===1,'double click creates one project');
             const form=creations[0][1].body;
             check(form.get('pose_id')==='pose_side'&&form.get('preset_id')==='preset-one'&&form.get('prompt_language')==='zh'&&form.get('art_style_id')==='art-one','all selections transmitted');
+            check(form.getAll('references').length===2&&JSON.parse(form.get('reference_details'))[0].role==='Identity only','all images and roles travel with creation');
             check(!el('editor').hidden&&el('conversation').textContent.includes('Prompt prêt'),'prompt and discussion shown');
             check(!el('render').disabled,'prepared prompt ready');
+            const activeRole=el('references').querySelector('input[type=text]');activeRole.value='Face only';activeRole.dispatchEvent(new Event('input'));
+            el('refresh').click();await settle();
+            check(el('references').querySelector('input[type=text]').value==='Face only','refresh preserves role draft');
+            el('save').click();await settle();check(current().references.find(r=>r.id==='ref-0').role==='Face only','role edits persist');
+            selectFiles(el('reference-file'),['scene.png','light.png']);
+            check(el('pending-references').children.length===2,'existing project previews a selection');
+            el('reference-add').click();await settle();
+            check(el('pending-references').children.length===0&&current().references.length===5,'lost batch response reconciles without duplicates');
+            check(calls.filter(([u])=>u.endsWith('/references/batch')).length===1,'one atomic upload for the selection');
             change('active-language','en');await settle();check(el('render').disabled,'language change invalidates prompt');
             el('chat').click();await settle();check(!el('render').disabled,'new prompt allows render');
             change('ratio','1:1');change('seed','18446744073709551610');
-            const loraSelect=el('loras').querySelector('select');
-            loraSelect.value='minmax_nsfw/style.safetensors';loraSelect.dispatchEvent(new Event('change'));
-            const strength=el('loras').querySelector('input[type=range]');
+            el('loras').querySelector('[data-lora-add]').click();
+            document.querySelector('.minimax-lora-picker [data-lora-select]').click();
+            const strength=el('loras').querySelector('input[type=number]');
             strength.value='.375';strength.dispatchEvent(new Event('input'));
             el('refresh').click();await settle();
-            check(loraSelect.value==='minmax_nsfw/style.safetensors'&&strength.value==='0.375','refresh retains unsaved LoRA settings');
+            check(el('loras').querySelector('[data-lora-choose]').textContent.includes('style.safetensors')&&strength.value==='0.375','refresh retains unsaved LoRA settings');
             el('render').click();el('render').click();await settle();
             check(calls.filter(([u,o])=>u.endsWith('/attempts')&&o.method==='POST').length===1,'lost render receipt never duplicates submission');
             check(el('attempts').children.length===1&&el('render').disabled,'queued attempt reconciled after lost response');
             check(current().attempts[0].settings.seed==='18446744073709551610','uint64 seed remains text');
             check(current().attempts[0].settings.loras[0].strength===.375,'attempt pins selected LoRA strength');
             check(current().attempts[0].context.creative.pose.id==='pose_side','attempt pins pose');
+            const originalReferences=JSON.stringify(current().attempts[0].context.references);
+            selectFiles(el('references').querySelector('input[type=file]'),['replacement.png']);await settle();
+            check(current().references.some(r=>r.active&&r.name==='replacement.png'),'individual replacement works in an existing project');
+            check(current().references.filter(r=>r.active).length===5,'replacement keeps the same active reference count');
+            check(JSON.stringify(current().attempts[0].context.references)===originalReferences,'replacement preserves previous attempt references');
             el('active-pose-choose').click();await settle();
             const nextCard=el('picker-grid').firstElementChild;nextCard.querySelector('button').click();await settle();
             check(current().creative.pose.id==='pose_front','active pose changed');

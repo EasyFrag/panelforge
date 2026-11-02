@@ -22,6 +22,7 @@ from panelforge.domain.localized_speech import (
 from panelforge.domain.prompt_lab import CreativeFreedomAxes
 from panelforge.domain.video_factory import (
     LITTLE_MEN_EXPERIMENTAL_INTENT, LITTLE_MEN_EXPERIMENTAL_INTENT_V2,
+    LITTLE_MEN_EXPERIMENTAL_INTENT_V3,
     apply_preset, invalidate, new_item, preparation_text,
 )
 from panelforge.domain.video_preparation import ClassicCinematicSettings
@@ -89,7 +90,7 @@ class DirectionLifecycleTest(unittest.TestCase):
                 expected = LITTLE_MEN_EXPERIMENTAL_INTENT if intention == LITTLE_MEN_EXPERIMENTAL_INTENT_V2 else intention
                 self.assertEqual(saved["config"]["intention"], expected)
                 self.assertEqual(saved["source_config"]["intention"], intention)
-                self.assertEqual(saved["runtime"]["thanks_selection"]["version"], 4)
+                self.assertEqual(saved["runtime"]["thanks_selection"]["version"], 5)
                 self.assertEqual(saved["config"]["render"], config["render"])
                 reopened = VideoFactoryService(store=store, adapter=adapter).snapshot()["items"][0]
                 self.assertEqual(reopened["runtime"]["thanks_selection"], saved["runtime"]["thanks_selection"])
@@ -97,6 +98,7 @@ class DirectionLifecycleTest(unittest.TestCase):
     def test_started_v2_is_preserved_but_duplicate_gets_new_direction(self):
         config = config_for("Pays : Japon")
         config["intention"] = LITTLE_MEN_EXPERIMENTAL_INTENT_V2
+        config["little_men_direction_version"] = None
         old = new_item("Old", config, {}, "old")
         selection = {**make_selection(config, old["id"]), "version": 2}
         old["runtime"].update(session_id="existing", thanks_selection=selection)
@@ -119,6 +121,7 @@ class DirectionLifecycleTest(unittest.TestCase):
     def test_model_edit_keeps_v2_but_explicit_preset_reapply_uses_current_version(self):
         config = config_for("Pays : Japon")
         config["intention"] = LITTLE_MEN_EXPERIMENTAL_INTENT_V2
+        config["little_men_direction_version"] = None
         item = new_item("Image", config, {}, "old")
         item["runtime"]["thanks_selection"] = {**make_selection(config, item["id"]), "version": 2}
         before = deepcopy(item["config"])
@@ -128,7 +131,7 @@ class DirectionLifecycleTest(unittest.TestCase):
         before = deepcopy(item["config"])
         item["config"] = apply_preset(before, "little_men_experimental", item["source_config"])
         invalidate(item, before)
-        self.assertEqual(item["runtime"]["thanks_selection"]["version"], 4)
+        self.assertEqual(item["runtime"]["thanks_selection"]["version"], 8)
         self.assertEqual(item["runtime"]["thanks_selection"]["requested_language"], "Japanese")
 
     def test_adapter_preserves_v1_and_v2_preparation_inputs(self):
@@ -140,6 +143,7 @@ class DirectionLifecycleTest(unittest.TestCase):
             with self.subTest(version=version):
                 config = config_for("Pays : Japon")
                 config["intention"] = LITTLE_MEN_EXPERIMENTAL_INTENT_V2
+                config["little_men_direction_version"] = None
                 item = new_item("Old", config, {}, str(version))
                 item["runtime"]["session_id"] = "session"
                 selection = None if version == 1 else {**make_selection(config, item["id"]), "version": 2}
@@ -158,6 +162,8 @@ class PreparedRequestTest(unittest.TestCase):
         for country in ("Pays : Japon", ""):
             with self.subTest(country=country), TemporaryDirectory() as directory:
                 config = config_for(country)
+                config["intention"] = LITTLE_MEN_EXPERIMENTAL_INTENT_V3
+                config["little_men_direction_version"] = None
                 selection = {**make_selection(config, "image"), "version": 3}
                 source = preparation_text(config, thanks_selection=selection)
                 plan, writer, _ = speech_fixture("Japanese", "ありがとう！")

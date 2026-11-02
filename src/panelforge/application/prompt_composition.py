@@ -11,14 +11,24 @@ import re
 from typing import Protocol
 from uuid import uuid4
 from panelforge.domain.prompt_composition import PreparationIntent
-from panelforge.domain.localized_speech import LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4
-from panelforge.domain.little_men_direction import SOLUTION_PLAN_POLICY, SOLUTION_PLAN_POLICY_V4, writer_intention
+from panelforge.domain.localized_speech import (
+    LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4, LOCALIZED_THANKS_V5,
+    LOCALIZED_THANKS_V6, LOCALIZED_THANKS_V7, LOCALIZED_THANKS_VARIETY_V8, STANDARD_HELP_POLICIES,
+)
+from panelforge.domain.little_men_variety import selection_from_text as variety_selection_from_text
+from panelforge.domain.little_men_direction import (
+    SOLUTION_PLAN_POLICY, SOLUTION_PLAN_POLICY_V4, SOLUTION_PLAN_POLICY_V5,
+    SOLUTION_WRITER_POLICY_V5, SOLUTION_PLAN_POLICY_V6, SOLUTION_WRITER_POLICY_V6,
+    SOLUTION_PLAN_POLICY_V7, SOLUTION_WRITER_POLICY_V7, writer_intention, writer_intention_v7,
+    writer_intention_v8,
+)
 from .h3_multishot_preparation import (
     MULTISHOT_PLAN_CONTRACT, MULTISHOT_DIRECT_CONTRACT, compact_multishot_schema,
     compile_compact_multishot, validate_compact_multishot, multishot_state_warnings,
     align_state_multishot_duration,
 )
 from . import combat_sequence, classic_cinematic, sensual_cinematic, worker_visual_policy
+from . import little_men_causal, little_men_prompting
 from .dialogue_placeholders import DialoguePlaceholders
 from .prompt_recipes import PromptRecipeStore
 
@@ -53,6 +63,7 @@ from .prompt_lab import (
     StreamEventKind,
     StreamPhase,
     creative_freedom_policy,
+    creative_axes_from_legacy,
     creative_audacity_policy,
     project_reference_evidence,
     truncated_response_message,
@@ -318,7 +329,9 @@ def _sequence_settings(session):
 
 
 def _sequence_schema(handler, session, stage, writer, context):
-    if handler is classic_cinematic or handler is sensual_cinematic:
+    if handler is classic_cinematic:
+        return handler.schema(stage.value, plan=context.get("plan"), speech_policy=context.get("speech_policy"))
+    if handler is sensual_cinematic:
         return handler.schema(stage.value, plan=context.get("plan"))
     return handler.schema(stage.value, writer, session.preparation.version)
 
@@ -2465,7 +2478,8 @@ class PromptCompositionService:
         from .prompt_recipe_text import using_prompt_texts
         package = None
         key = (cookbook.reference.cookbook_id, cookbook.reference.version)
-        if self.prompt_recipes is not None and key in EDITABLE_KEYS:
+        causal = preparation_source(session, composition).speech_policy in classic_cinematic.CAUSAL_HELP_POLICIES
+        if not causal and self.prompt_recipes is not None and key in EDITABLE_KEYS:
             pinned = None
             if stage is CompositionStage.FINAL_PROMPT and instruction is None:
                 plan = _approved_stage(composition, CompositionStage.BEAT_SHEET,
@@ -2478,6 +2492,9 @@ class PromptCompositionService:
 
     def _sequence_request_scoped(self, session, composition, cookbook, stage, expected, instruction, include_reasoning, package):
         source = preparation_source(session, composition)
+        causal = source.speech_policy in classic_cinematic.CAUSAL_HELP_POLICIES
+        direction_version = {LOCALIZED_THANKS_V5: 5, LOCALIZED_THANKS_V6: 6,
+                             LOCALIZED_THANKS_V7: 7}.get(source.speech_policy, 5)
         handler = _sequence_handler(cookbook)
         if session.preparation.is_combat:
             combat_sequence.check_intention(source.source_text, session.combat_settings)
@@ -2515,6 +2532,11 @@ class PromptCompositionService:
             system = package["fields"][field]
             if package["fields"].get("camera_contract"):
                 system += "\n\n" + package["fields"]["camera_contract"]
+        if causal:
+            # This version supplies its own example-free instructions. Historical
+            # cookbooks and their editable worked examples remain untouched.
+            system = little_men_prompting.system_prompt(writer=writer,
+                version=direction_version)
         mapping = (direct_h3_base_reference_mapping(session, composition_picture_mapping(composition))
                    if cookbook.target_mode == "fl2va_direct" else _preparation_reference_mapping(session, composition))
         output_schema = _sequence_schema(handler, session, stage, writer, context)
@@ -2531,11 +2553,19 @@ class PromptCompositionService:
                 camera["description"] = package["fields"]["camera_contract"]
                 output_schema = json.dumps(schema_document, ensure_ascii=False)
 
-        intention = (writer_intention(source.source_text)
-                     if writer and source.speech_policy in (LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4) else source.source_text)
+        intention = source.source_text
+        brief = source.content if composition.preparation_intent is None else ""
+        if writer and source.speech_policy in STANDARD_HELP_POLICIES:
+            intention = writer_intention_v8(intention)
+            brief = writer_intention_v8(brief)
+        elif writer and source.speech_policy == LOCALIZED_THANKS_V7:
+            intention = writer_intention_v7(intention)
+            brief = writer_intention_v7(brief)
+        elif writer and source.speech_policy in (LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4, LOCALIZED_THANKS_V5, LOCALIZED_THANKS_V6):
+            intention = writer_intention(intention)
         user = "\n\n".join((
             "USER INTENTION:\n" + intention,
-            ("APPROVED BRIEF:\n" + source.content) if composition.preparation_intent is None else "",
+            ("APPROVED BRIEF:\n" + brief) if composition.preparation_intent is None else "",
             "REFERENCE ROLES:\n" + mapping,
             "REQUESTED DURATION MS: " + str(context["duration_ms"]),
             "PLAN TO PRESERVE:\n" + json.dumps(context.get("plan"), ensure_ascii=False),
@@ -2543,22 +2573,37 @@ class PromptCompositionService:
             "Return exactly this JSON schema:\n" + output_schema,
             ("CURRENT CANDIDATE:\n" + current.content + "\nUSER REVISION:\n" + instruction) if instruction is not None else "",
         ))
-        system += _sequence_policy(session, source.source_text)
+        if not causal:
+            policy_source = (writer_intention_v8(source.source_text)
+                             if source.speech_policy in STANDARD_HELP_POLICIES else source.source_text)
+            system += _sequence_policy(session, policy_source)
         system += worker_visual_policy.guidance(visual_binding)
         if stage is CompositionStage.BEAT_SHEET:
-            if source.speech_policy == LOCALIZED_THANKS_V4:
+            if causal:
+                system += "\n\n" + {5: SOLUTION_PLAN_POLICY_V5, 6: SOLUTION_PLAN_POLICY_V6,
+                                     7: SOLUTION_PLAN_POLICY_V7}[direction_version]
+            elif source.speech_policy == LOCALIZED_THANKS_V4:
                 system += "\n\n" + SOLUTION_PLAN_POLICY_V4
             elif source.speech_policy == LOCALIZED_THANKS_V3:
                 system += "\n\n" + SOLUTION_PLAN_POLICY
         if writer and session.preparation.is_classic_cinematic:
-            system += classic_cinematic.writer_layout(context["plan"])
+            system += classic_cinematic.writer_layout(context["plan"], speech_policy=source.speech_policy)
+            if causal:
+                system += "\n\n" + {5: SOLUTION_WRITER_POLICY_V5, 6: SOLUTION_WRITER_POLICY_V6,
+                                     7: SOLUTION_WRITER_POLICY_V7}[direction_version]
+                system += "\n\n" + little_men_causal.writer_instructions(context["plan"])
         if writer and session.preparation.is_sensual:
             system += sensual_cinematic.writer_layout(context["plan"])
         if session.preparation.is_combat and session.preparation.version == "1.3.0":
             from .combat_cinematic_policy import demonstration
             system += demonstration(session.combat_settings, stage.value, source.source_text)
-        system += "\n" + creative_freedom_policy(source.creative_freedom, source.creative_axes, preparation=session.preparation)
-        system += "\n" + creative_audacity_policy(source.creative_audacity, preparation=session.preparation)
+        if causal:
+            system += "\n" + little_men_prompting.creative_policy(
+                source.creative_axes or creative_axes_from_legacy(source.creative_freedom), source.creative_audacity,
+                version=direction_version)
+        else:
+            system += "\n" + creative_freedom_policy(source.creative_freedom, source.creative_axes, preparation=session.preparation)
+            system += "\n" + creative_audacity_policy(source.creative_audacity, preparation=session.preparation)
         system += _vocal_stage_policy(session, composition, cookbook, stage, plan=context.get("plan"))
         model_id = (composition.writer_model_id or session.model_id) if writer else session.model_id
         prefix = handler.encode_context(context)
@@ -3036,6 +3081,21 @@ class PromptCompositionService:
                 for key in ("mode", "header", "duration_ms", "settings", "preparation"):
                     if context[key] != base[key]:
                         raise ValueError("Le contexte de mise en scène ne correspond plus à cet atelier.")
+                policies = (base.get("speech_policy"), context.get("speech_policy"))
+                if any(policy in (LOCALIZED_THANKS_V6, LOCALIZED_THANKS_V7, *STANDARD_HELP_POLICIES) for policy in policies):
+                    context_keys = ("speech_policy", "variety_selection")
+                    if any(policy in (LOCALIZED_THANKS_V7, *STANDARD_HELP_POLICIES) for policy in policies):
+                        context_keys += ("source_text",)
+                        # Automatic language selection is resolved by the approved
+                        # Plan and saved during compilation, not in the source.
+                        if base.get("speech_language") is not None:
+                            context_keys += ("speech_language",)
+                    if any(context.get(key) != base.get(key) for key in context_keys):
+                        raise ValueError("Le contexte Petits hommes ne correspond plus à cette préparation. Recalculez le Prompt depuis le Plan approuvé.")
+                    approved = _approved_stage(composition, CompositionStage.BEAT_SHEET,
+                        self._expected_sources(session, composition, CompositionStage.BEAT_SHEET))
+                    if context.get("sequence_plan") != json.loads(approved.content):
+                        raise ValueError("Le Prompt Petits hommes doit conserver le Plan actuellement approuvé.")
                 handler.validate_final(content, context)
             document = composition.document(stage)
             revision = CompositionRevision(revision_id=f"{stage.value}-{uuid4().hex}",
@@ -5724,8 +5784,11 @@ def _preparation_reference_mapping(session, composition) -> str:
 
 def _mono_direct_context(session, composition, cookbook) -> str:
     mapping = composition_picture_mapping(composition)
+    source = preparation_source(session, composition)
+    video_source = (writer_intention_v8(source.source_text) if source.speech_policy in STANDARD_HELP_POLICIES else
+                    writer_intention_v7(source.source_text) if source.speech_policy == LOCALIZED_THANKS_V7 else source.source_text)
     value = direct_prompt_context(
-        session, mapping, preparation_source(session, composition).source_text,
+        session, mapping, video_source,
         reference_header=(_preparation_reference_header(session, composition) if cookbook.target_mode == "ref2v_direct" else None),
     )
     visual_binding = _worker_visual_binding(session, composition)
@@ -5734,12 +5797,13 @@ def _mono_direct_context(session, composition, cookbook) -> str:
         context["worker_visual_binding"] = visual_binding
         value = json.dumps(context, ensure_ascii=False)
     if getattr(cookbook, "vocal_policy_version", None):
-        source = preparation_source(session, composition)
         context = json.loads(value)
         context.update(vocal_policy_version=cookbook.vocal_policy_version,
             dialogue_level=getattr(source.creative_axes, "dialogue", 0), source_text=source.source_text)
         if source.speech_policy is not None:
             context.update(speech_policy=source.speech_policy, speech_language=source.speech_language)
+        if source.speech_policy in (LOCALIZED_THANKS_V6, LOCALIZED_THANKS_V7, LOCALIZED_THANKS_VARIETY_V8):
+            context["variety_selection"] = variety_selection_from_text(source.source_text)
         value = json.dumps(context, ensure_ascii=False)
     return value
 
@@ -5752,7 +5816,7 @@ def _vocal_stage_policy(session, composition, cookbook, stage, *, plan=None) -> 
     locked = composition.preparation_intent is None or (
         stage is CompositionStage.FINAL_PROMPT and cookbook.preparation_steps > 1)
     language = source.speech_language
-    if source.speech_policy in (LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4) and locked and plan is not None:
+    if source.speech_policy in (LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4, LOCALIZED_THANKS_V5, LOCALIZED_THANKS_V6, LOCALIZED_THANKS_V7, *STANDARD_HELP_POLICIES) and locked and plan is not None:
         languages, words = plan.get("spoken_languages", []), plan.get("spoken_lines", [])
         if len(languages) != 1 or len(words) != 1:
             raise ValueError("Le Plan approuvé doit contenir un unique remerciement et sa langue.")

@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from panelforge.application.mh_assisted import MhAssistedService
+from panelforge.application import mh_assisted_prompting as prompting
 from panelforge.application.qwen_edit import QwenEditConflict
 from panelforge.domain.krea2_art_direction import Krea2ArtDirection
 from panelforge.domain import mh_assisted as policy
@@ -112,7 +113,7 @@ class MhAssistedTests(MhFixture):
         m = self.message()
         self.assertEqual(m["status"], "succeeded", m.get("error"))
         request = self.gateway.requests[-1]
-        self.assertEqual(request.operation_id, "mh.assisted@1.0.0")
+        self.assertEqual(request.operation_id, "mh.assisted@1.1.0")
         context = json.loads(request.user_prompt)["CURRENT INPUTS"]
         self.assertEqual(context["creative"]["prompt_language"], "zh")
         self.assertEqual(context["creative"]["style_preset"]["revision"], 3)
@@ -196,7 +197,226 @@ class MhAssistedTests(MhFixture):
         self.assertEqual(repeated["stages"][0]["attempts"][0]["id"], first["id"])
 
 
+class MhPromptingTests(MhFixture):
+    def payload(self):
+        return json.loads(prompting.user_prompt(self.current(), "Actualise avec les références actuelles."))
+
+    def test_anatomy_constraints_reach_saved_prompt_and_attempt_in_requested_language(self):
+        for language in ("en", "zh"):
+            with self.subTest(language=language):
+                self.configure(prompt_language=language)
+                stage = self.update(draft="Une personne debout.", model_id="fake-vision")
+                _, message_id = self.service.begin_message(self.project_id, self.stage_id,
+                    revision=stage["revision"], request_id="language-" + language)
+                before = len(self.gateway.requests)
+                self.service.execute_message(self.project_id, self.stage_id, message_id)
+                message = self.current()["messages"][-1]
+                self.assertEqual(message["status"], "succeeded", message.get("error"))
+                self.assertEqual(len(self.gateway.requests), before + 1)
+                self.assertEqual(json.loads(message["raw"])["prompt"], self.current()["prompt"].split("\n\n")[0])
+                self.assertTrue(self.current()["prompt"].endswith(prompting.POSE_CONSTRAINTS[language]))
+                self.assertEqual(self.queue("render-" + language)["prompt"], self.current()["prompt"])
+                self.assertNotIn(prompting.POSE_CONSTRAINTS[language], self.payload()["CURRENT TARGET"])
+
+    def test_finalization_is_idempotent_and_revalidates_reference_labels_and_length(self):
+        context = policy.context_snapshot(self.current())
+        prompt = prompting.finalize_prompt("Use <Picture 1> for posture.", context)
+        self.assertEqual(prompting.finalize_prompt(prompt, context), prompt)
+        with self.assertRaises(ValueError):
+            prompting.finalize_prompt("Use <Picture 2> for posture.", context)
+        with self.assertRaises(ValueError):
+            prompting.finalize_prompt("<Picture 1> " + "x" * 23980, context)
+
+    def test_no_pose_and_legacy_replies_and_manual_prompts_are_not_rewritten(self):
+        raw_prompt = "Use <Picture 1> for the subject."
+        raw = json.dumps({"message": "Proposition.", "prompt": raw_prompt})
+        context = policy.context_snapshot(self.current())
+        old = {"policy_version": "1.0.0", "context": context}
+        self.assertEqual(self.service._decode_message(old, raw)[1], raw_prompt)
+        self.reference("Sujet", "render")
+        self.configure(pose_id="")
+        context = policy.context_snapshot(self.current())
+        self.assertEqual(prompting.finalize_prompt(raw_prompt, context), raw_prompt)
+        self.configure(pose_id="pose-a")
+        manual = "Use <Picture 1> for posture and <Picture 2> for identity. A wooden articulated toy."
+        self.update(prompt=manual)
+        self.assertEqual(self.queue()["prompt"], manual)
+
+    def test_late_reply_keeps_frozen_pose_and_language_without_overwriting_current_prompt(self):
+        self.gateway.hook = lambda: self.configure(prompt_language="zh")
+        message = self.message()
+        self.assertFalse(message["applied"])
+        self.assertTrue(message["prompt"].endswith(prompting.POSE_CONSTRAINTS["en"]))
+        self.assertFalse(policy.prompt_is_ready(self.current()))
+
+    def test_pose_change_discards_obsolete_assistant_description_but_keeps_user_choices(self):
+        message = self.message("Conserve une lumière bleue.")
+        old_context = deepcopy(message["context"])
+        self.assertFalse(self.payload()["REFERENCE CHANGES"]["pose_changed"])
+        self.configure(pose_id="pose-b")
+        payload = self.payload()
+        self.assertTrue(payload["REFERENCE CHANGES"]["baseline_known"])
+        self.assertTrue(payload["REFERENCE CHANGES"]["pose_changed"])
+        self.assertEqual(payload["REFERENCE CHANGES"]["modified"], ["mh-pose"])
+        self.assertEqual(payload["CONVERSATION"], [{"user": "Conserve une lumière bleue.", "assistant": ""}])
+        self.assertEqual(self.current()["messages"][0]["context"], old_context)
+        self.assertEqual(self.current()["messages"][0]["reply"], message["reply"])
+
+    def test_replacement_role_and_usage_changes_are_explicit_and_tags_follow_current_inputs(self):
+        original = self.reference("Sujet", "render", "blue")
+        self.message()
+        self.service.add_references(self.project_id, self.stage_id, revision=self.current()["revision"],
+            request_id=str(uuid4()), replace_id=original["id"],
+            references=[dict(content=png("red"), name="Autre sujet", role="Identité", usage="render")])
+        payload = self.payload()
+        new_id = payload["REFERENCE CHANGES"]["added"][0]
+        self.assertEqual(payload["REFERENCE CHANGES"]["removed"], [original["id"]])
+        self.assertFalse(payload["REFERENCE CHANGES"]["pose_changed"])
+        refs = deepcopy(self.current()["references"])
+        next(ref for ref in refs if ref["id"] == new_id).update(role="Éclairage", usage="assistant")
+        self.update(references=refs)
+        self.assertEqual(len(self.payload()["CURRENT INPUTS"]["render_inputs"]), 1)
+        self.assertTrue(self.payload()["REFERENCE CHANGES"]["render_tags_changed"])
+        # Same identity, different role/usage must also be reported as a modification.
+        baseline = deepcopy(self.current())
+        baseline["prompt"] = "Use <Picture 1>."
+        baseline["messages"] = [dict(status="succeeded", prompt=baseline["prompt"],
+                                     context=policy.context_snapshot(baseline))]
+        next(ref for ref in baseline["references"] if ref["id"] == new_id).update(role="Décor", usage="render")
+        changes = prompting.reference_changes(baseline, policy.context_snapshot(baseline))
+        self.assertEqual(changes["modified"], [new_id])
+        self.assertTrue(changes["render_tags_changed"])
+
+    def test_unknown_manual_baseline_is_conservative_and_restored_attempt_can_supply_context(self):
+        self.update(prompt="A manually composed scene using <Picture 1>.")
+        payload = self.payload()
+        self.assertFalse(payload["REFERENCE CHANGES"]["baseline_known"])
+        self.assertTrue(payload["REFERENCE CHANGES"]["pose_changed"])
+        attempt = deepcopy(self.queue())
+        self.configure(pose_id="pose-b")
+        other_context = policy.context_snapshot(self.current())
+        self.service.restore_attempt(self.project_id, self.stage_id, attempt["id"], revision=self.current()["revision"])
+        self.assertTrue(self.payload()["REFERENCE CHANGES"]["baseline_known"])
+        self.assertFalse(self.payload()["REFERENCE CHANGES"]["pose_changed"])
+        self.assertEqual(self.current()["attempts"][0], attempt)
+        # A later reply can reuse the same words for another pose; prefer the restored context.
+        restored = deepcopy(self.current())
+        restored["messages"].append(dict(status="succeeded", prompt=restored["prompt"], context=other_context))
+        changes = prompting.reference_changes(restored, policy.context_snapshot(restored))
+        self.assertFalse(changes["pose_changed"])
+        self.assertEqual(changes["modified"], [])
+
+    def test_crop_uncertainty_reaches_request_and_style_only_change_does_not_replace_pose(self):
+        stage = deepcopy(self.current())
+        stage["creative"]["pose"].update(confidence="low", review_note="Genou et pied hors cadre.",
+                                          elevation="Contre-plongée")
+        payload = json.loads(prompting.user_prompt(stage, "Utilise cette pose."))
+        self.assertEqual(payload["CURRENT INPUTS"]["creative"]["pose"]["review_note"], "Genou et pied hors cadre.")
+        self.message()
+        self.configure(art_style_id="style-one", prompt_language="zh")
+        self.assertFalse(self.payload()["REFERENCE CHANGES"]["pose_changed"])
+        self.assertEqual(self.payload()["REFERENCE CHANGES"]["modified"], [])
+
+
+class MhReferenceUploadTests(MhFixture):
+    @staticmethod
+    def upload(color="blue", **metadata):
+        return {"content":png(color), "name":"Sujet.png", "role":"Identité uniquement", "usage":"render", **metadata}
+
+    def test_initial_images_roles_and_usage_reach_first_prompt_and_creation_replay(self):
+        uploads = [self.upload(), {**self.upload("red"), "role": "Tenue uniquement"},
+                   {**self.upload("white"), "usage": "assistant", "role": "Lumière uniquement"}]
+        request = dict(request_id=str(uuid4()), name="Plusieurs références", pose_id="pose-b",
+                       preset_id="preset-one", references=uploads)
+        project = self.service.create_assisted(**request)
+        self.assertEqual(self.service.create_assisted(**request), project)
+        self.project_id, self.stage_id = project["id"], project["active_stage_id"]
+        refs = self.current()["references"]
+        self.assertEqual(len({r["name"] for r in refs}), 5)
+        self.assertEqual(len(policy.render_inputs(self.current())), 3)
+        self.assertEqual(self.message()["status"], "succeeded")
+        sent = self.gateway.requests[-1]
+        self.assertEqual(len(sent.images), 5)
+        context = json.loads(sent.user_prompt)["CURRENT INPUTS"]
+        self.assertEqual([r["role"] for r in context["render_inputs"]][1:], ["Identité uniquement", "Tenue uniquement"])
+        self.assertEqual([r["tag"] for r in context["render_inputs"]], ["<Picture 1>", "<Picture 2>", "<Picture 3>"])
+        with self.assertRaises(QwenEditConflict):
+            self.service.create_assisted(**{**request, "references": list(reversed(uploads))})
+
+    def test_creation_limits_include_pose_and_preset_and_reject_assistant_only(self):
+        before = len(self.store.list())
+        invalid = [dict(pose_id="pose-a", references=[self.upload()] * 9),
+                   dict(references=[{**self.upload(), "usage":"assistant"}]),
+                   dict(pose_id="pose-a", preset_id="preset-one",
+                        references=[{**self.upload(), "usage":"assistant"}] * 31)]
+        for choices in invalid:
+            with self.subTest(choices=list(choices)), self.assertRaises(ValueError):
+                self.service.create_assisted(request_id=str(uuid4()), name="Limite", **choices)
+        self.assertEqual(len(self.store.list()), before)
+        valid = self.service.create_assisted(request_id=str(uuid4()), name="Neuf", references=[self.upload()] * 9)
+        self.assertEqual(len(policy.render_inputs(valid["stages"][0])), 9)
+
+    def test_atomic_batch_retry_and_replacement_at_capacity_preserve_attempt(self):
+        args = dict(revision=self.current()["revision"], request_id=str(uuid4()), references=[self.upload()] * 8)
+        first = self.service.add_references(self.project_id, self.stage_id, **args)
+        self.assertEqual(self.service.add_references(self.project_id, self.stage_id, **args), first)
+        self.assertEqual(len(policy.render_inputs(self.current())), 9)
+        with self.assertRaises(QwenEditConflict):
+            self.service.add_references(self.project_id, self.stage_id, **{**args, "references":[self.upload("red")]})
+        self.message(); attempt = deepcopy(self.queue())
+        original = deepcopy(self.current()["references"][3])
+        replace = dict(revision=self.current()["revision"], request_id=str(uuid4()),
+                       references=[{**self.upload("red"), "name":"Remplacement.png"}], replace_id=original["id"])
+        result = self.service.add_references(self.project_id, self.stage_id, **replace)
+        self.assertEqual(result, self.service.add_references(self.project_id, self.stage_id, **replace))
+        stage = self.current()
+        self.assertEqual(len(policy.render_inputs(stage)), 9)
+        self.assertEqual(policy.render_inputs(stage)[3]["name"], "Remplacement.png")
+        self.assertFalse(next(r for r in stage["references"] if r["id"] == original["id"])["active"])
+        self.assertFalse(policy.prompt_is_ready(stage))
+        self.assertEqual(stage["attempts"][0]["context"], attempt["context"])
+        self.service.restore_attempt(self.project_id, self.stage_id, attempt["id"], revision=stage["revision"])
+        self.assertEqual(self.current()["references"], attempt["context"]["references"])
+
+    def test_failed_batch_and_protected_replacement_do_not_change_project(self):
+        before = self.service.get(self.project_id)
+        cases = [dict(references=[self.upload(), {**self.upload(), "content":b"not an image"}]),
+                 dict(references=[self.upload()] * 9),
+                 dict(references=[self.upload()], replace_id="mh-pose"),
+                 dict(references=[{**self.upload(), "role":"x" * 301}])]
+        for case in cases:
+            with self.subTest(case=list(case)), self.assertRaises((ValueError, OSError)):
+                self.service.add_references(self.project_id, self.stage_id, revision=self.current()["revision"],
+                                            request_id=str(uuid4()), **case)
+            self.assertEqual(self.service.get(self.project_id), before)
+
+
 class MhWebTests(MhFixture):
+    def test_multipart_multi_creation_batch_replacement_and_legacy_upload(self):
+        app = FastAPI(); app.include_router(mh_assisted_router(self.service))
+        with TestClient(app) as client:
+            api = "/api/image-lab/mh-assisted"
+            metadata = [dict(name="Identité", role="Visage", usage="render"),
+                        dict(name="Lumière", role="Éclairage", usage="assistant")]
+            data = dict(request_id=str(uuid4()), name="Multi", reference_details=json.dumps(metadata))
+            files = [("references", ("one.png", png(), "image/png")), ("references", ("two.png", png("red"), "image/png"))]
+            response = client.post(api + "/projects", data=data, files=files)
+            self.assertEqual(response.status_code, 201, response.text)
+            project = response.json()["project"]; stage = project["stages"][0]
+            self.assertEqual([r["role"] for r in stage["references"]], ["Visage", "Éclairage"])
+            self.assertEqual(client.post(api + "/projects", data=data, files=files).json()["project"], project)
+            self.assertEqual(client.post(api + "/projects", data={**data, "reference_details":"[]"}, files=files).status_code, 422)
+            url = f"{api}/projects/{project['id']}/stages/{stage['id']}/references/batch"
+            batch = dict(revision=stage["revision"], request_id=str(uuid4()), replace_id=stage["references"][0]["id"])
+            replacement = [("images", ("new.png", png("green"), "image/png"))]
+            replaced = client.post(url, data=batch, files=replacement)
+            self.assertEqual(replaced.status_code, 201, replaced.text)
+            self.assertEqual(client.post(url, data=batch, files=replacement).json(), replaced.json())
+            legacy = client.post(api + "/projects", data=dict(request_id=str(uuid4()), name="Legacy"),
+                                 files={"reference": ("old.png", png(), "image/png")})
+            self.assertEqual(legacy.status_code, 201, legacy.text)
+            self.assertEqual(len(legacy.json()["project"]["stages"][0]["render_inputs"]), 1)
+
     def test_create_prepare_render_contract_and_validation_without_live_gateways(self):
         app = FastAPI(); app.include_router(mh_assisted_router(self.service))
         with TestClient(app) as client:

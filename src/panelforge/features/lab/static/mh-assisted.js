@@ -7,7 +7,8 @@
   const storageKey = "panelforge.mh-assisted.current.v1";
   const state = {project:null, spec:null, models:[], presets:[], styles:[], poses:[], catalog:null,
     newArt:null, newPose:null, busy:false, initialized:false, loading:null, poll:null, pollAbort:null,
-    dirty:new Set(), picker:null, page:0, createId:null, pending:new Map(), historySignature:"", pollFailed:false};
+    dirty:new Set(), picker:null, page:0, createId:null, pending:new Map(), historySignature:"", pollFailed:false,
+    newReferences:[], uploadReferences:[], uploadRequestId:null, referenceDraft:null, referenceRevision:null};
   const activeStatuses = new Set(["queued", "running", "submitting", "submitted", "cancel_pending"]);
   const stage = () => state.project?.stages.find(s => s.id === state.project.active_stage_id);
   const assetUrl = id => "/api/assets/" + encodeURIComponent(id) + "/content";
@@ -27,7 +28,9 @@
   function image(src, alt, lazy=true) {
     const img = document.createElement("img"); img.src = src; img.alt = alt || "";
     if (lazy) img.loading = "lazy";
+    img.tabIndex = 0; img.setAttribute("role", "button"); img.setAttribute("aria-label", `Agrandir ${alt || "l’image"}`);
     img.addEventListener("click", () => preview(src, alt));
+    img.addEventListener("keydown", event => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); preview(src, alt); } });
     return img;
   }
   function preview(src, alt) {
@@ -52,12 +55,18 @@
     el("new-fields").disabled = state.busy || !state.spec;
     el("editor-fields").disabled = state.busy;
     loras.setDisabled(state.busy || !stage());
-    el("create").disabled = state.busy || !state.spec || !el("new-model").value
-      || (!state.newPose && !el("new-reference").files.length);
+    const newCounts = referenceCounts(state.newReferences, Boolean(state.newPose), Boolean(el("new-preset").value));
+    displayReferenceCount("new-reference-count", newCounts);
+    el("create").disabled = state.busy || !state.spec || !el("new-model").value || !newCounts.render || !newCounts.valid;
     const s = stage(), generating = s?.attempts.some(a => activeStatuses.has(a.status));
+    const refs = state.dirty.has("references") ? state.referenceDraft : s?.references || [];
+    const counts = referenceCounts([...refs.filter(r => r.active), ...state.uploadReferences]);
+    displayReferenceCount("reference-count", counts);
+    el("reference-add").disabled = state.busy || !s || !state.uploadReferences.length || !counts.valid;
     const prompting = s?.messages.some(m => activeStatuses.has(m.status));
     el("chat").disabled = state.busy || !s || prompting;
-    el("render").disabled = state.busy || !s || generating || prompting || (!s.prompt_ready && !state.dirty.has("prompt"));
+    el("render").disabled = state.busy || !s || generating || prompting || Boolean(state.uploadReferences.length)
+      || ((!s.prompt_ready || state.dirty.has("references")) && !state.dirty.has("prompt"));
     root.querySelectorAll(".mh-attempt button, #mh-history button, .mh-picker-card button, .mh-picker-card select").forEach(b => { b.disabled = state.busy; });
     el("picker-install").disabled = state.busy;
   }
@@ -86,7 +95,7 @@
   }
   function displayChoice(target, kind, value) {
     const img = el(`${target}-${kind}-image`), name = el(`${target}-${kind}-name`);
-    name.textContent = value ? kind === "pose" ? `${value.number} · ${value.name} · ${value.angle}`
+    name.textContent = value ? kind === "pose" ? `${value.number} · ${value.name} · ${value.view_label || value.angle}`
       : value.display_name || value.name : kind === "pose" ? "Sans pose" : "Sans direction artistique";
     img.hidden = !value; el(`${target}-${kind}-clear`).hidden = !value;
     if (value) img.src = kind === "pose" ? value.asset_id ? assetUrl(value.asset_id) : `${api}/poses/${encodeURIComponent(value.id)}/thumbnail`
@@ -131,6 +140,7 @@
     updateControls();
   }
   async function openProject(id) {
+    if (state.uploadReferences.length) throw new Error("Ajoute ou retire les images sélectionnées avant de changer de projet.");
     const result = await request(`${api}/projects/${encodeURIComponent(id)}`);
     state.dirty.clear(); renderProject(result.project, true); el("new-project").open = false;
     try { sessionStorage.setItem(storageKey, id); } catch (_) { /* Optional navigation persistence. */ }
@@ -146,6 +156,7 @@
     if (reset) state.pollFailed = false;
     state.project = project;
     const s = stage(), c = s.creative;
+    if (state.uploadRequestId && s.reference_commands?.some(r => r.request_id === state.uploadRequestId)) clearUploads("upload");
     el("editor").hidden = false; el("welcome").hidden = true; el("title").textContent = project.name;
     el("download").href = `${api}/projects/${project.id}/download`;
     presetOptions(el("active-preset"), c.style_preset?.preset_id, c.style_preset);
@@ -170,17 +181,121 @@
     for (const [key, id] of state.pending) if ([...s.messages, ...s.attempts].some(x => x.request_id === id)) state.pending.delete(key);
     updateControls();
   }
+  function referenceCounts(refs, pose=false, preset=false) {
+    const render = refs.filter(r => r.usage === "render").length + Number(pose);
+    const total = refs.length + Number(pose) + Number(preset);
+    return {render, total, valid:render <= (state.spec?.max_render_images || 9) && total <= (state.spec?.max_assistant_images || 32)};
+  }
+  function displayReferenceCount(target, counts) {
+    el(target).textContent = `${counts.render}/${state.spec?.max_render_images || 9} références de génération · pose comprise`
+      + (counts.total > counts.render ? ` · ${counts.total - counts.render} pour l’assistant uniquement` : "")
+      + (!counts.valid ? " · Limite dépassée : 9 au rendu, 32 pour l’assistant." : "");
+    el(target).classList.toggle("error", !counts.valid);
+  }
+  function referenceFields(card, ref, onEdit) {
+    const usageLabel = node("label", "Utilisation"), usage = node("select");
+    usage.setAttribute("aria-label", `Utilisation de ${ref.name}`);
+    usage.append(new Option("Référence de génération", "render"), new Option("Inspiration pour l’assistant", "assistant"));
+    usage.value = ref.usage;
+    usage.addEventListener("change", () => onEdit("usage", usage.value)); usageLabel.append(usage);
+    const roleLabel = node("label", "Rôle · facultatif"), role = node("input");
+    role.type = "text"; role.maxLength = 300; role.value = ref.role;
+    role.placeholder = "Ex. Identité, tenue ou décor uniquement"; role.setAttribute("aria-label", `Rôle de ${ref.name}`);
+    role.addEventListener("input", () => onEdit("role", role.value)); roleLabel.append(role);
+    card.append(usageLabel, roleLabel);
+  }
+  function validateFiles(files, existing=[]) {
+    if ([...files].some(file => !["image/png", "image/jpeg", "image/webp"].includes(file.type)
+      || !file.size || file.size > (state.spec?.max_upload_bytes || 25 * 1024**2)))
+      throw new Error("Choisis des images PNG, JPEG ou WebP de 25 Mo maximum chacune.");
+    if (files.length + existing.length > (state.spec?.max_assistant_images || 32)
+      || [...files, ...existing.map(r => r.file)].reduce((n, f) => n + f.size, 0) > (state.spec?.max_reference_batch_bytes || 100 * 1024**2))
+      throw new Error("Choisis au maximum 32 images et 100 Mo par ajout.");
+  }
+  const uploadsFor = target => target === "new" ? state.newReferences : state.uploadReferences;
+  function revokePreview(ref) {
+    if (el("image-full").getAttribute("src") === ref.url) el("image-dialog").close();
+    URL.revokeObjectURL(ref.url);
+  }
+  function clearUploads(target) {
+    const refs = uploadsFor(target); refs.forEach(revokePreview); refs.length = 0;
+    if (target === "upload") state.uploadRequestId = null;
+    renderUploads(target);
+  }
+  function uploadChanged(target) {
+    if (target === "new") state.createId = null; else state.uploadRequestId = null;
+    updateControls();
+  }
+  function fileChooser(card, onSelect) {
+    const input = node("input"); input.type = "file"; input.accept = "image/png,image/jpeg,image/webp"; input.hidden = true;
+    input.addEventListener("change", () => {
+      const file = input.files[0]; input.value = ""; if (!file || state.busy) return;
+      try { validateFiles([file]); onSelect(file); } catch (error) { message(error.message); }
+    });
+    card.append(input, button("Remplacer", () => input.click()));
+  }
+  function renderUploads(target) {
+    const refs = uploadsFor(target), container = el(target === "new" ? "new-references" : "pending-references");
+    container.replaceChildren();
+    for (const ref of refs) {
+      const card = node("article"); card.append(image(ref.url, ref.name, false), node("b", ref.name));
+      referenceFields(card, ref, (key, value) => { ref[key] = value; uploadChanged(target); });
+      fileChooser(card, file => {
+        validateFiles([file], refs.filter(r => r !== ref)); revokePreview(ref);
+        Object.assign(ref, {file, name:file.name.slice(0,70), url:URL.createObjectURL(file)});
+        renderUploads(target); uploadChanged(target);
+      });
+      card.append(button("Retirer", () => {
+        revokePreview(ref); refs.splice(refs.indexOf(ref), 1); renderUploads(target); uploadChanged(target);
+      })); container.append(card);
+    }
+  }
+  function selectUploads(target, input) {
+    try {
+      const files = [...input.files], refs = uploadsFor(target); validateFiles(files, refs);
+      refs.push(...files.map(file => ({file, name:file.name.slice(0,70), role:"", usage:"render", url:URL.createObjectURL(file)})));
+      renderUploads(target); uploadChanged(target); message("");
+    } catch (error) { message(error.message); }
+    finally { input.value = ""; }
+  }
+  function appendUploads(form, refs, field) {
+    refs.forEach(ref => form.append(field, ref.file));
+    form.set("reference_details", JSON.stringify(refs.map(({name, role, usage}) => ({name, role, usage}))));
+  }
+  async function uploadReferences(refs, replaceId="", requestId=uuid()) {
+    const selection = refs.map(ref => ({...ref}));
+    await save();
+    if (stage().reference_commands?.some(r => r.request_id === requestId)) return;
+    const form = new FormData(); form.set("revision", stage().revision); form.set("request_id", requestId);
+    if (replaceId) form.set("replace_id", replaceId);
+    appendUploads(form, selection, "images");
+    const result = await request(`${stageUrl()}/references/batch`, {method:"POST", body:form});
+    renderProject(result.project);
+  }
   function renderReferences(s) {
+    if (state.dirty.has("references")) return;
+    state.referenceDraft = null; state.referenceRevision = null;
     el("references").replaceChildren();
     for (const ref of s.references.filter(r => r.active)) {
       const card = node("article"); card.append(image(assetUrl(ref.asset_id), ref.name), node("b", ref.name),
         node("small", ref.usage === "render" ? "Transmise à MiniMax" : "Assistant uniquement"));
-      card.title = ref.role;
-      if (!ref.id.startsWith("mh-")) card.append(button("Retirer", () => perform(async () => {
-        await save(); const refs = stage().references.map(r => r.id === ref.id ? {...r, active:false} : r);
-        const result = await jsonRequest(stageUrl(), {revision:stage().revision, changes:{references:refs}}, "PATCH");
-        renderProject(result.project);
-      })));
+      if (ref.id.startsWith("mh-")) card.append(node("small", ref.role));
+      else {
+        referenceFields(card, ref, (key, value) => {
+          if (!state.referenceDraft) { state.referenceDraft = structuredClone(stage().references); state.referenceRevision = stage().revision; }
+          state.referenceDraft.find(r => r.id === ref.id)[key] = value;
+          state.dirty.add("references"); updateControls();
+        });
+        fileChooser(card, file => perform(async () => {
+          await save(); const current = stage().references.find(r => r.id === ref.id);
+          await uploadReferences([{file, name:file.name.slice(0,70), role:current.role, usage:current.usage}], ref.id);
+        }));
+        card.append(button("Retirer", () => perform(async () => {
+          await save(); const refs = stage().references.map(r => r.id === ref.id ? {...r, active:false} : r);
+          const result = await jsonRequest(stageUrl(), {revision:stage().revision, changes:{references:refs}}, "PATCH");
+          renderProject(result.project);
+        })));
+      }
       el("references").append(card);
     }
   }
@@ -231,7 +346,7 @@
       if (a.settings.loras?.length) card.append(node("small", "LoRA : " + window.PanelForgeMinimaxLoras.summary(a.settings.loras)));
       const creative = a.context.creative;
       card.append(node("small", [creative.prompt_language, creative.style_preset?.name, creative.art_direction?.name,
-        creative.pose ? `${creative.pose.number} · ${creative.pose.angle}` : null].filter(Boolean).join(" · ")));
+        creative.pose ? `${creative.pose.number} · ${creative.pose.view_label || creative.pose.angle}` : null].filter(Boolean).join(" · ")));
       if (a.error) card.append(node("p", a.error, "error"));
       const details = node("details"); details.append(node("summary", "Prompt de cet essai"), node("pre", a.prompt)); card.append(details);
       if (!activeStatuses.has(a.status)) card.append(button("Reprendre ces choix", () => perform(async () => {
@@ -244,6 +359,7 @@
   async function save() {
     if (!state.project || !state.dirty.size) return;
     const changes = {};
+    if (state.dirty.has("references")) changes.references = state.referenceDraft;
     if (state.dirty.has("draft")) changes.draft = el("message").value;
     if (state.dirty.has("prompt")) changes.prompt = el("prompt").value;
     if (state.dirty.has("model_id")) changes.model_id = el("model").value;
@@ -251,7 +367,7 @@
       aspect_ratio:el("ratio").value, resolution:el("resolution").value, steps:Number(el("steps").value),
       seed:el("seed").value.trim(), reuse_seed:el("reuse-seed").checked, reference_megapixels:Number(el("reference-mp").value),
       loras:loras.getValue()};
-    const result = await jsonRequest(stageUrl(), {revision:stage().revision, changes}, "PATCH");
+    const result = await jsonRequest(stageUrl(), {revision:state.dirty.has("references") ? state.referenceRevision : stage().revision, changes}, "PATCH");
     state.dirty.clear(); renderProject(result.project);
   }
   async function configure(changes) {
@@ -260,6 +376,7 @@
     renderProject(result.project);
   }
   async function command(kind) {
+    if (state.uploadReferences.length) throw new Error("Ajoute les images sélectionnées avant de préparer le prompt ou le rendu.");
     await save();
     if (kind === "messages" && !stage().draft.trim()) {
       const result = await jsonRequest(stageUrl(), {revision:stage().revision,
@@ -280,15 +397,17 @@
     event.preventDefault();
     if (!el("new-form").reportValidity()) return;
     await perform(async () => {
+      if (state.uploadReferences.length) throw new Error("Ajoute ou retire les images du projet ouvert avant d’en créer un autre.");
       await save();
       const form = new FormData(); state.createId ||= uuid();
       form.set("request_id", state.createId); form.set("name", el("new-name").value);
       form.set("intention", el("new-intention").value); form.set("model_id", el("new-model").value);
       form.set("prompt_language", el("new-language").value); form.set("preset_id", el("new-preset").value);
       form.set("art_style_id", state.newArt?.style_id || ""); form.set("pose_id", state.newPose?.id || "");
-      if (el("new-reference").files[0]) form.set("reference", el("new-reference").files[0]);
+      appendUploads(form, state.newReferences, "references");
       const result = await request(`${api}/projects`, {method:"POST", body:form});
       state.createId = null; state.dirty.clear(); renderProject(result.project, true); el("new-project").open = false;
+      clearUploads("new");
       try { sessionStorage.setItem(storageKey, result.project.id); } catch (_) { /* Optional. */ }
       await history(); await command("messages");
     });
@@ -321,7 +440,7 @@
   }
   const searchable = value => String(value || "").normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase();
   function matchesPose(p, query) {
-    const text = searchable(`${p.id} ${p.number} ${p.name} ${p.source_name || ""} ${p.category} ${p.family} ${p.angle}`);
+    const text = searchable(`${p.id} ${p.number} ${p.name} ${p.source_name || ""} ${p.category} ${p.family} ${p.angle} ${p.view_label || ""}`);
     return query.split(/\s+/).every(word => text.includes(word));
   }
   function syncPoseFilters(query) {
@@ -331,7 +450,7 @@
     const available = state.poses.filter(p => (!family || p.family === family) && matchesPose(p, query));
     choices(el("picker-category"), unique(available, "category"), el("picker-category").value, "Toutes les catégories");
     const category = el("picker-category").value;
-    const angles = new Set(available.filter(p => !category || p.category === category).map(p => p.angle));
+    const angles = new Set(available.filter(p => !category || p.category === category).flatMap(p => [p.angle, p.elevation]));
     choices(el("picker-angle"), (state.catalog?.angles || []).filter(angle => angles.has(angle)), el("picker-angle").value, "Tous les angles");
   }
   function renderPicker() {
@@ -343,7 +462,7 @@
     if (isPose) {
       const groups = new Map();
       for (const p of state.poses) {
-        if ((category && p.category !== category) || (family && p.family !== family) || (angle && p.angle !== angle)) continue;
+        if ((category && p.category !== category) || (family && p.family !== family) || (angle && p.angle !== angle && p.elevation !== angle)) continue;
         if (!matchesPose(p, query)) continue;
         if (!groups.has(p.pose_id)) groups.set(p.pose_id, []); groups.get(p.pose_id).push(p);
       }
@@ -359,14 +478,24 @@
     for (const value of values.slice(state.page*24, state.page*24+24)) {
       const card = node("article", null, "mh-picker-card"); let selected = isPose ? value.find(p => p.angle === "Face") || value[0] : value;
       const src = p => isPose ? `${api}/poses/${encodeURIComponent(p.id)}/thumbnail` : p.thumbnail_url;
+      const fullSrc = p => isPose && state.catalog?.original_previews ? `${api}/poses/${encodeURIComponent(p.id)}/original` : src(p);
       const img = document.createElement("img"); img.src = src(selected); img.alt = selected.name; img.loading = "lazy";
-      img.addEventListener("click", () => preview(src(selected), selected.name));
+      img.tabIndex = 0; img.setAttribute("role", "button"); img.setAttribute("aria-label", "Agrandir " + selected.name);
+      img.addEventListener("click", () => preview(fullSrc(selected), selected.name));
+      img.addEventListener("keydown", event => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); preview(fullSrc(selected), selected.name); } });
       card.append(img, node("b", isPose ? `${selected.number} · ${selected.name}` : selected.display_name || selected.name),
         node("small", isPose ? `${selected.family} · ${selected.category}` : selected.category));
       if (isPose) {
         const angles = document.createElement("select"); angles.setAttribute("aria-label", "Angle de la pose " + selected.number);
-        value.forEach(p => angles.append(new Option(p.angle, p.id))); angles.value = selected.id;
-        angles.addEventListener("change", () => { selected = value.find(p => p.id === angles.value); img.src = src(selected); }); card.append(angles);
+        value.forEach(p => angles.append(new Option(p.view_label || p.angle, p.id))); angles.value = selected.id;
+        const note = node("small");
+        const updateView = () => {
+          img.src = src(selected);
+          note.textContent = [selected.confidence === "low" ? "Classement à confirmer." : "", selected.review_note || ""].filter(Boolean).join(" ");
+          note.hidden = !note.textContent;
+        };
+        angles.addEventListener("change", () => { selected = value.find(p => p.id === angles.value); updateView(); });
+        updateView(); card.append(angles, note);
       }
       card.append(button("Choisir", () => choosePicker(selected))); el("picker-grid").append(card);
     }
@@ -376,6 +505,7 @@
   async function choosePicker(value) {
     const picker = {...state.picker};
     if (picker.target === "new") {
+      state.createId = null;
       if (picker.kind === "pose") state.newPose = value; else state.newArt = value;
       displayChoice("new", picker.kind, value); el("picker").close(); updateControls(); return;
     }
@@ -416,10 +546,14 @@
     schedulePoll();
   }
   el("new-form").addEventListener("submit", create);
-  ["new-reference", "new-model"].forEach(id => el(id).addEventListener("change", updateControls));
+  el("new-reference").addEventListener("change", () => selectUploads("new", el("new-reference")));
+  el("reference-file").addEventListener("change", () => selectUploads("upload", el("reference-file")));
+  el("new-model").addEventListener("change", updateControls);
+  el("new-form").addEventListener("input", () => { state.createId = null; });
   el("new-preset").addEventListener("change", () => {
     const preset = state.presets.find(p => p.preset_id === el("new-preset").value);
     if (preset) { el("new-language").value = preset.prompt_language; state.newArt = preset.art_direction; displayChoice("new", "art", state.newArt); }
+    updateControls();
   });
   el("active-preset").addEventListener("change", () => {
     const preset = state.presets.find(p => p.preset_id === el("active-preset").value);
@@ -433,6 +567,7 @@
     el(`${target}-${kind}-image`).addEventListener("click", event => preview(event.target.src, event.target.alt));
     el(`${target}-${kind}-clear`).addEventListener("click", () => {
       if (target === "new") {
+        state.createId = null;
         if (kind === "pose") state.newPose = null; else state.newArt = null;
         displayChoice(target, kind, null); updateControls();
       } else perform(() => configure(kind === "pose" ? {pose_id:""} : {art_style_id:""}));
@@ -447,11 +582,10 @@
   el("render").addEventListener("click", () => perform(() => command("attempts")));
   el("copy").addEventListener("click", () => navigator.clipboard.writeText(el("prompt").value).catch(e => message(e.message)));
   el("reference-add").addEventListener("click", () => perform(async () => {
-    const file = el("reference-file").files[0]; if (!file) throw new Error("Choisis une image à ajouter.");
-    await save(); const form = new FormData(); form.set("image", file); form.set("revision", stage().revision);
-    form.set("name", file.name.slice(0,70)); form.set("usage", el("reference-usage").value); form.set("role", el("reference-role").value);
-    const result = await request(`${stageUrl()}/references`, {method:"POST", body:form});
-    renderProject(result.project); el("reference-file").value = ""; el("reference-role").value = "";
+    if (!state.uploadReferences.length) throw new Error("Choisis des images à ajouter.");
+    state.uploadRequestId ||= uuid();
+    await uploadReferences(state.uploadReferences, "", state.uploadRequestId);
+    clearUploads("upload");
   }));
   el("feedback-clear").addEventListener("click", () => perform(async () => {
     await save(); const result = await jsonRequest(stageUrl(), {revision:stage().revision, changes:{feedback_attempt_id:null}}, "PATCH"); renderProject(result.project);
@@ -475,6 +609,8 @@
   });
   document.addEventListener("visibilitychange", activate);
   new MutationObserver(activate).observe(root, {attributes:true, attributeFilter:["hidden"]});
-  window.addEventListener("beforeunload", event => { if (state.dirty.size) { event.preventDefault(); event.returnValue = ""; } });
+  window.addEventListener("beforeunload", event => {
+    if (state.dirty.size || state.newReferences.length || state.uploadReferences.length) { event.preventDefault(); event.returnValue = ""; }
+  });
   activate();
 })();

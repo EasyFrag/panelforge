@@ -1,4 +1,5 @@
 """HTTP boundary for assisted still compositions, catalogues and frozen attempts."""
+import json
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
@@ -40,17 +41,42 @@ def mh_assisted_router(service):
         if upload is None:
             return None
         try:
-            data = await upload.read(25 * 1024**2 + 1)
-            if not data or len(data) > 25 * 1024**2:
+            data = await upload.read(policy.MAX_UPLOAD_BYTES + 1)
+            if not data or len(data) > policy.MAX_UPLOAD_BYTES:
                 raise HTTPException(422, "Choisis une image de 25 Mo maximum.")
             return data
         finally:
             await upload.close()
 
+    async def reference_uploads(files, details):
+        try:
+            if len(files) > policy.MAX_ASSISTANT_IMAGES:
+                raise HTTPException(422, "Choisis au maximum 32 images par ajout.")
+            try:
+                metadata = json.loads(details) if details else [{} for _ in files]
+            except ValueError as error:
+                raise HTTPException(422, "Description des références invalide.") from error
+            if (not isinstance(metadata, list) or len(metadata) != len(files)
+                    or any(not isinstance(m, dict) or set(m) - {"name", "role", "usage"} for m in metadata)):
+                raise HTTPException(422, "Chaque image doit avoir sa propre description.")
+            result, total = [], 0
+            for upload, meta in zip(files, metadata):
+                data = await content(upload)
+                total += len(data)
+                if total > policy.MAX_REFERENCE_BATCH_BYTES:
+                    raise HTTPException(422, "Choisis au maximum 100 Mo d’images par ajout.")
+                result.append({"name": (upload.filename or "Référence")[:70], **meta, "content": data})
+            return result
+        finally:
+            for upload in files:
+                await upload.close()
+
     @router.get("/spec")
     def spec():
         return action(lambda: dict(defaults=policy.Settings().record(), aspect_ratios=policy.RATIOS,
-            max_render_images=policy.MAX_RENDER_IMAGES, default_model_id=policy.DEFAULT_ASSISTANT_MODEL,
+            max_render_images=policy.MAX_RENDER_IMAGES, max_assistant_images=policy.MAX_ASSISTANT_IMAGES,
+            max_upload_bytes=policy.MAX_UPLOAD_BYTES, max_reference_batch_bytes=policy.MAX_REFERENCE_BATCH_BYTES,
+            default_model_id=policy.DEFAULT_ASSISTANT_MODEL,
             prompt_languages=["en", "zh"], pose_catalog=service.poses.status()), project=False)
 
     @router.get("/models")
@@ -75,6 +101,10 @@ def mh_assisted_router(service):
     def thumbnail(entry_id: str):
         return action(lambda: FileResponse(service.poses.image_path(entry_id, thumbnail=True)), project=False)
 
+    @router.get("/poses/{entry_id}/original")
+    def original(entry_id: str):
+        return action(lambda: FileResponse(service.poses.image_path(entry_id)), project=False)
+
     @router.get("/projects")
     def projects():
         return action(lambda: dict(projects=service.list()), project=False)
@@ -85,12 +115,19 @@ def mh_assisted_router(service):
                      prompt_language: Annotated[Literal["en", "zh"], Form()] = "en",
                      preset_id: Annotated[str, Form(max_length=128)] = "",
                      art_style_id: Annotated[str, Form(max_length=240)] = "", pose_id: Annotated[str, Form(max_length=100)] = "",
-                     reference: Annotated[UploadFile | None, File()] = None):
+                     reference: Annotated[UploadFile | None, File()] = None,
+                     references: Annotated[list[UploadFile] | None, File()] = None,
+                     reference_details: Annotated[str, Form(max_length=30000)] = ""):
         require()
+        if reference is not None and (references or reference_details):
+            for upload in [reference, *(references or [])]:
+                await upload.close()
+            raise HTTPException(422, "Utilise une seule liste d’images de référence.")
         data = await content(reference)
+        uploads = await reference_uploads(references or [], reference_details) if references or reference_details else None
         return await run_in_threadpool(action, lambda: service.create_assisted(request_id=request_id, name=name,
             intention=intention, model_id=model_id, prompt_language=prompt_language, preset_id=preset_id,
-            art_style_id=art_style_id, pose_id=pose_id, content=data))
+            art_style_id=art_style_id, pose_id=pose_id, content=data, references=uploads))
 
     @router.get("/projects/{project_id}")
     def get(project_id: str):
@@ -112,6 +149,17 @@ def mh_assisted_router(service):
         data = await content(image)
         return await run_in_threadpool(action, lambda: service.add_reference(project_id, stage_id,
             revision=revision, name=name, role=role, usage=usage, content=data))
+
+    @router.post("/projects/{project_id}/stages/{stage_id}/references/batch", status_code=201)
+    async def references_batch(project_id: str, stage_id: str,
+                               revision: Annotated[int, Form(ge=0)], request_id: Annotated[str, Form(max_length=80)],
+                               images: Annotated[list[UploadFile], File()],
+                               reference_details: Annotated[str, Form(max_length=30000)] = "",
+                               replace_id: Annotated[str, Form(max_length=80)] = ""):
+        require()
+        uploads = await reference_uploads(images, reference_details)
+        return await run_in_threadpool(action, lambda: service.add_references(project_id, stage_id,
+            revision=revision, request_id=request_id, references=uploads, replace_id=replace_id or None))
 
     @router.post("/projects/{project_id}/stages/{stage_id}/messages", status_code=202)
     def message(project_id: str, stage_id: str, body: RequestBody, tasks: BackgroundTasks):

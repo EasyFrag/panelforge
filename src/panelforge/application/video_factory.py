@@ -6,12 +6,23 @@ from .factory_views import descriptor, has_errors, item_tab, list_row, ordered_r
 from panelforge.domain.factory_cycle import delivered
 
 from panelforge.domain.localized_speech import THANKS_LANGUAGES
-from panelforge.domain.little_men_languages import make_selection, recent_languages
-from panelforge.domain.video_factory import current_experimental_intent
+from panelforge.domain.little_men_languages import make_selection, recent_languages, selection_version
+from panelforge.domain.video_factory import (
+    current_experimental_intent, current_variety_intent, current_adaptive_intent,
+    current_standard_intent, current_standard_variety_intent,
+)
+from panelforge.domain.little_men_variety import (
+    PRESET_ID as VARIETY_PRESET_ID, OBJECTS, MECHANISM_LABELS, CATALOG_VERSION,
+    LEGACY_CATALOG_VERSION, is_variety, make_variety_selection,
+)
+from panelforge.domain.little_men_variety_history import (
+    bootstrap_history, plan_identity, preparation_identity, record_choice, record_exposure,
+)
 from panelforge.domain.video_factory import is_experimental_little_men
 from panelforge.domain.video_factory_results import can_archive, delivery_material, instagram_text, variant_text
 from panelforge.domain.factory_cycle import admit_cycle, bootstrap_cycle, sync_cycle
 import time
+import json
 
 from panelforge.domain.video_factory import (
     STAGES, PRESETS, PRESET_LABELS, configuration, fingerprint, initial_steps, invalidate, merge_settings,
@@ -40,6 +51,20 @@ class VideoFactoryService:
         self._delivery_thread = None
         self._lock = RLock()
         self._state = store.load()
+        self._state["variety_history"] = bootstrap_history(
+            self._state["items"], self._state.get("variety_history"))
+        for item in self._state["items"]:
+            runtime = item.get("runtime") or {}
+            selection = runtime.get("thanks_selection") or {}
+            if is_variety(item.get("config", {})) and isinstance(selection, dict) and selection.get("variety"):
+                try:
+                    runtime.setdefault("variety_preparation_id", preparation_identity(item))
+                except (TypeError, ValueError):
+                    pass
+            step = item.get("steps", {}).get("plan", {})
+            if step.get("status") == "succeeded" and step.get("finished_at"):
+                self._remember_variety_choice(
+                    item, step.get("output", {}).get("text"), step["finished_at"], historical=True)
         self._workers = {}
         self._stop = Event()
         self._wake = Event()
@@ -85,6 +110,44 @@ class VideoFactoryService:
             raise FileNotFoundError("Traitement introuvable.")
         return value
 
+    def _remember_variety_choice(self, item, text, accepted_at, *, historical=False):
+        """Record an approved choice once, independently of rendering and fiche edits."""
+        if not is_variety(item.get("config", {})) or not isinstance(text, str):
+            return
+        selection = item.get("runtime", {}).get("thanks_selection") or {}
+        if not isinstance(selection, dict) or not selection.get("variety"):
+            return
+        try:
+            plan = json.loads(text)
+        except (TypeError, ValueError):
+            return
+        choice = plan.get("variety_choice") if isinstance(plan, dict) else None
+        recorded = selection.get("variety_choice")
+        if historical and choice is None:
+            choice = recorded
+        if (not isinstance(choice, dict)
+                or (choice != recorded and not (historical and recorded is None))):
+            return
+        try:
+            preparation_id, plan_id = preparation_identity(item), plan_identity(text)
+            previous = item["runtime"].get("variety_choice_record") or {}
+            if (isinstance(previous, dict) and previous.get("preparation_id") == preparation_id
+                    and previous.get("plan_id") == plan_id):
+                accepted_at = previous.get("accepted_at") or accepted_at
+            updated = record_choice(self._state["variety_history"], preparation_id,
+                                    item["id"], plan_id, choice, accepted_at)
+        except (TypeError, ValueError):
+            # Malformed or undated historical metadata is not evidence of use.
+            return
+        self._state["variety_history"] = updated
+        item["runtime"].setdefault("variety_preparation_id", preparation_id)
+        accepted_at = next((event["accepted_at"] for event in updated["choices"]
+                            if event["item_id"] == item["id"]
+                            and event["preparation_id"] == preparation_id
+                            and event["plan_id"] == plan_id), accepted_at)
+        item["runtime"]["variety_choice_record"] = dict(
+            preparation_id=preparation_id, plan_id=plan_id, accepted_at=accepted_at)
+
     def _selected(self, identities, revisions=None):
         if not identities or len(identities) != len(set(identities)) or len(identities) > 500:
             raise ValueError("Sélection invalide (1 à 500 éléments).")
@@ -110,6 +173,8 @@ class VideoFactoryService:
             if item["status"] == "queued" and not item.get("waiting_reason"):
                 item["waiting_reason"] = self._waiting_reason(item, result["paused"], machines)
         result.update(presets=PRESETS, preset_labels=PRESET_LABELS, thanks_languages=THANKS_LANGUAGES,
+                      variety_objects={key: obj["label"] for key, obj in OBJECTS.items()},
+                      variety_mechanisms=dict(MECHANISM_LABELS),
                       machines=machines, scheduler_error=self._scheduler_error)
         if self.monitoring:
             result["monitoring"] = self._monitoring_snapshot(result)
@@ -167,6 +232,8 @@ class VideoFactoryService:
             result = self.summary()
             result.update(page=dict(tab=tab, filter=filter, sort=sort, offset=offset, limit=limit, total=len(selected)),
                           presets=PRESETS, preset_labels=PRESET_LABELS, thanks_languages=THANKS_LANGUAGES,
+                          variety_objects={key: obj["label"] for key, obj in OBJECTS.items()},
+                          variety_mechanisms=dict(MECHANISM_LABELS),
                           machines=deepcopy(getattr(self.adapter, "machines", {})))
             # Machine availability can change without a persisted item revision.
             result["waiting_reasons"] = {item["id"]: item.get("waiting_reason") or
@@ -316,7 +383,7 @@ class VideoFactoryService:
                     candidate["config"] = config
                 validate_shape(candidate["config"])
                 enrich = getattr(self.adapter, "enrich_image_context", None)
-                context_changed = (preset == "little_men_experimental" or
+                context_changed = (preset in ("little_men_experimental", VARIETY_PRESET_ID) or
                     bool(set(changes or {}) & {"references", "little_men_language", "little_men_context", "intention"}))
                 if enrich and context_changed and replacements is None and is_experimental_little_men(candidate["config"]):
                     candidate["config"] = enrich(candidate["config"], candidate["source"])
@@ -452,7 +519,11 @@ class VideoFactoryService:
                     for item in items:
                         config = deepcopy(item["config"])
                         if is_experimental_little_men(config):
-                            config["intention"] = current_experimental_intent(config["intention"])
+                            upgrade = {5: current_experimental_intent, 6: current_variety_intent,
+                                       7: current_adaptive_intent,
+                                       8: current_standard_variety_intent if is_variety(config)
+                                          else current_standard_intent}[selection_version(config)]
+                            config["intention"] = upgrade(config["intention"])
                         enrich = getattr(self.adapter, "enrich_image_context", None)
                         if enrich and is_experimental_little_men(config):
                             config = enrich(config, item["source"])
@@ -709,9 +780,36 @@ class VideoFactoryService:
                         and not item["runtime"].get("thanks_selection")
                         and not item["runtime"].get("session_id") and not item["runtime"].get("saved_plan")
                         and not item["steps"]["plan"]["output"].get("text")):
-                    item["config"]["intention"] = current_experimental_intent(item["config"]["intention"])
+                    version = selection_version(item["config"])
+                    upgrade = {5: current_experimental_intent, 6: current_variety_intent,
+                               7: current_adaptive_intent,
+                               8: current_standard_variety_intent if is_variety(item["config"])
+                                  else current_standard_intent}[version]
+                    item["config"]["intention"] = upgrade(item["config"]["intention"])
+                    item["config"]["little_men_direction_version"] = version
                     item["runtime"]["thanks_selection"] = make_selection(
                         item["config"], item["id"], recent_languages(self._state["items"], exclude=identity))
+                    self._save((item,))
+                selection = item["runtime"].get("thanks_selection")
+                variety_preparation = selection and (selection.get("version") in (6, 7)
+                    or (selection.get("version") == 8 and is_variety(item["config"])))
+                if stage == "plan" and variety_preparation and not selection.get("variety"):
+                    if (item["runtime"].get("session_id") or item["runtime"].get("saved_plan")
+                            or item["steps"]["plan"]["output"].get("text")):
+                        raise ValueError("L’assortiment du Plan experimental est absent. Dupliquez la fiche pour commencer une nouvelle préparation.")
+                    # Reserve and persist under the same lock, before any model call.
+                    # Later fiches see these candidates even while this Plan is running.
+                    current_catalogue = selection.get("version") == 8
+                    selection["variety"] = make_variety_selection(
+                        identity, self._state["items"],
+                        exclude="" if current_catalogue else identity,
+                        history=self._state["variety_history"] if current_catalogue else None,
+                        catalog_version=CATALOG_VERSION if current_catalogue else LEGACY_CATALOG_VERSION)
+                    item["runtime"]["variety_preparation_id"] = uuid4().hex
+                    item["runtime"]["variety_reserved_at"] = timestamp()
+                    self._state["variety_history"] = record_exposure(
+                        self._state["variety_history"], preparation_identity(item), identity,
+                        selection["variety"]["candidates"], item["runtime"]["variety_reserved_at"])
                     self._save((item,))
                 snapshot = deepcopy(item)
             output = self.adapter.run(snapshot, stage, checkpoint, cancelled, progress)
@@ -736,6 +834,9 @@ class VideoFactoryService:
             if item["cancel_requested"] and outcome in {"pending", "failed"}:
                 outcome, error = "cancelled", "Annulé."
             item["steps"][stage].update(status=outcome, error=error, output=output, finished_at=timestamp())
+            if stage == "plan" and outcome == "succeeded":
+                self._remember_variety_choice(
+                    item, output.get("text"), item["steps"][stage]["finished_at"])
             measured = deepcopy(item) if self.monitoring else None
             if outcome == "pending":
                 item["waiting_reason"] = error

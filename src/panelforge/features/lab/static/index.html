@@ -11,10 +11,10 @@
   <script src="/static/work-queue.js?v=20261026.global-thermal1" defer></script>
   <script src="/static/workshop-loader.js?v=20261028.mhlora1" defer></script>
   <script src="/static/lab-core.js?v=20261028.mh1" defer></script>
-  <link rel="stylesheet" href="/static/mh-assisted.css?v=20261028.mh1">
-  <template data-lab-script="mh-assisted.js"><script src="/static/mh-assisted.js?v=20261028.mhlora1" defer></script></template>
-  <link rel="stylesheet" href="/static/minimax-loras.css?v=20261028.1">
-  <template data-lab-script="minimax-loras.js"><script src="/static/minimax-loras.js?v=20261028.1" defer></script></template>
+  <link rel="stylesheet" href="/static/mh-assisted.css?v=20261029.refs1">
+  <template data-lab-script="mh-assisted.js"><script src="/static/mh-assisted.js?v=20261029.refs1.poses1" defer></script></template>
+  <link rel="stylesheet" href="/static/minimax-loras.css?v=20261029.1">
+  <template data-lab-script="minimax-loras.js"><script src="/static/minimax-loras.js?v=20261029.1" defer></script></template>
   <link rel="stylesheet" href="/static/stories.css?v=20260927.editions1">
   <link rel="stylesheet" href="/static/story-continuity.css?v=20260922.1">
   <template data-lab-script="story-continuity.js"><script src="/static/story-continuity.js?v=20260927.sparse-states" defer></script></template>
@@ -392,7 +392,7 @@
       <label class="vf-select" title="Sélectionner les lignes de cette page"><input id="vf-select-all" type="checkbox"> <span id="vf-selected-count">Sélection</span></label>
       <select id="vf-filter" aria-label="Filtrer les traitements"><option value="all">Tous</option><option value="ready">Prêts</option><option value="incomplete">À compléter</option><option value="failed">En erreur</option><option value="archivable">À archiver</option></select>
       <select id="vf-results-sort" aria-label="Trier les résultats" title="Tri par date de fin ; scènes d’une histoire regroupées" hidden><option value="chronological">Ordre habituel</option><option value="newest">Plus récents d’abord</option></select>
-      <select id="vf-bulk-preset" aria-label="Appliquer un preset à la sélection"><option value="">Appliquer un preset…</option><option value="source">Réglages source</option><option value="auto">Auto</option><option value="lips">Lèvres</option><option value="little_men_experimental">Petits hommes</option><option value="custom">Personnalisé</option></select>
+            <select id="vf-bulk-preset" aria-label="Appliquer un preset à la sélection" disabled><option value="">Appliquer un preset…</option></select>
       <button id="vf-bulk-settings" type="button">Réglages du lot</button>
       <button id="vf-up" type="button" title="Remonter la sélection">↑ Priorité</button><button id="vf-down" type="button" title="Descendre la sélection">↓</button>
       <button id="vf-launch" type="button" class="factory-button">Lancer la sélection</button>
@@ -998,8 +998,11 @@
         <form id="mh-new-form"><fieldset id="mh-new-fields">
           <label>Nom<input id="mh-new-name" maxlength="120" required placeholder="Ex. Portrait dans un jardin"></label>
           <label>Intention<textarea id="mh-new-intention" rows="6" maxlength="12000" placeholder="Décris le sujet, la scène et le résultat souhaité…"></textarea></label>
-          <label>Image de référence<input id="mh-new-reference" type="file" accept="image/png,image/jpeg,image/webp"></label>
-          <small>Une pose ou une image de référence est nécessaire. Les deux peuvent être combinées.</small>
+          <label>Ajouter des images de référence<input id="mh-new-reference" type="file" accept="image/png,image/jpeg,image/webp" multiple></label>
+          <small>25 Mo par image, 100 Mo par ajout. Clique sur une miniature pour l’agrandir.</small>
+          <div id="mh-new-references" class="mh-reference-grid"></div>
+          <small id="mh-new-reference-count" role="status"></small>
+          <small>Une pose ou une référence de génération est nécessaire. Les deux peuvent être combinées.</small>
           <label>Recette d’assistance<select id="mh-new-recipe"><option>V1 · MiniMax H3 Image</option></select></label>
           <div class="krea2-assisted-preset-choice"><label>Preset personnel<select id="mh-new-preset"><option value="">Sans preset</option></select></label>
             <label>Langue<select id="mh-new-language"><option value="en">English</option><option value="zh">中文</option></select></label>
@@ -1032,11 +1035,12 @@
             <div class="mh-choice"><img id="mh-active-pose-image" alt="Pose sélectionnée" hidden><div><b id="mh-active-pose-name">Sans pose</b><small>Posture et point de vue</small></div>
               <button id="mh-active-pose-choose" type="button">Choisir une pose</button><button id="mh-active-pose-clear" type="button" hidden>Retirer</button></div>
           </section>
-          <details class="mh-references" open><summary>Images de référence</summary><div id="mh-references" class="mh-reference-grid"></div>
-            <div class="mh-reference-upload"><label>Ajouter une image<input id="mh-reference-file" type="file" accept="image/png,image/jpeg,image/webp"></label>
-              <label>Utilisation<select id="mh-reference-usage"><option value="render">Référence de génération</option><option value="assistant">Inspiration pour l’assistant</option></select></label>
-              <label>Rôle<input id="mh-reference-role" maxlength="300" placeholder="Ex. Identité du personnage uniquement"></label>
-              <button id="mh-reference-add" type="button">Ajouter</button></div></details>
+          <details class="mh-references" open><summary>Images de référence</summary>
+            <small id="mh-reference-count" role="status"></small><div id="mh-references" class="mh-reference-grid"></div>
+            <label>Ajouter des images<input id="mh-reference-file" type="file" accept="image/png,image/jpeg,image/webp" multiple></label>
+            <small>25 Mo par image, 100 Mo par ajout. Rôle et utilisation se règlent sur chaque carte.</small>
+            <div id="mh-pending-references" class="mh-reference-grid"></div>
+            <button id="mh-reference-add" type="button" disabled>Ajouter les images sélectionnées</button></details>
           <section class="krea2-assisted-conversation-panel"><h3>Discussion</h3><div id="mh-conversation" class="krea2-assisted-conversation"></div>
             <p id="mh-feedback" class="muted" hidden></p><button id="mh-feedback-clear" type="button" hidden>Retirer le retour visuel</button>
             <label>Modèle LLM<select id="mh-model"></select></label><label class="llm-local-toggle"><input type="checkbox" data-llm-local-for="mh-model" checked> Local · Unsloth</label>

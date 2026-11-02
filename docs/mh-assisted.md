@@ -7,7 +7,7 @@ par Modifier avec Minimax. Les projets et leur historique sont distincts.
 ## Parcours
 
 1. Donner un nom et, si nécessaire, une intention.
-2. Choisir une pose du catalogue, une image de référence, ou les deux.
+2. Choisir une pose du catalogue, une ou plusieurs images de référence, ou les deux.
 3. Choisir le preset personnel, la langue du prompt (anglais/chinois), la direction
    artistique et le modèle LLM. Le modèle local Gemma est proposé par défaut quand disponible.
 4. Cliquer sur **Créer et proposer un prompt**, puis affiner par la discussion ou
@@ -38,6 +38,20 @@ Les images supplémentaires peuvent être réservées à l’assistant ou transm
 moteur, avec un rôle explicite. MiniMax accepte au total neuf références de rendu,
 pose comprise. L’exemple visuel du preset est envoyé à l’assistant uniquement.
 
+Le formulaire de création et le projet ouvert permettent de sélectionner plusieurs
+images en une fois. Chaque image affiche immédiatement une miniature agrandissable,
+son utilisation et un rôle facultatif modifiable. Le compteur inclut la pose dans
+les neuf références de génération ; l’assistant accepte 32 images au total, exemple
+du preset compris. PNG, JPEG et WebP sont acceptés, avec 25 Mo par image et 100 Mo
+par ajout. Les images initiales sont toutes enregistrées avant le premier prompt.
+
+Une image peut être retirée ou remplacée individuellement. Le remplacement conserve
+sa place et son rôle et reste possible lorsque les neuf places sont occupées.
+Les références des essais précédents restent conservées. Un ajout multiple est
+enregistré en une seule opération ; réessayer après une réponse réseau perdue ne
+duplique pas les images. Dans un projet ouvert, utiliser **Ajouter les images
+sélectionnées** avant de préparer un nouveau prompt.
+
 ## Presets, langue et directions artistiques
 
 Le catalogue et le gestionnaire de presets personnels existants restent accessibles.
@@ -55,6 +69,33 @@ modifiés ; ils sont aussi enregistrés avant un rendu, un échange ou un change
 de projet. Quitter la page avec des modifications non enregistrées déclenche
 l’avertissement du navigateur.
 
+## Pose et anatomie dans les prompts
+
+Le contrat MH `1.1.0` fait examiner la pose avant la rédaction : point de vue et
+cadrage, orientation du bassin et du buste, appuis visibles et parties masquées.
+Les notes d’incertitude du catalogue doivent être respectées ; un genou hors cadre
+ne permet pas d’affirmer sa flexion. Une référence d’identité fournit l’apparence
+sans imposer sa vue frontale ni rendre tous ses accessoires visibles.
+
+Pour les propositions de l’assistant utilisant une pose, l’application ajoute au
+prompt final un paragraphe sur la continuité anatomique et les articulations
+naturelles, sans sphères mécaniques ni raccords de mannequin. Ce paragraphe suit
+la langue choisie, anglais ou chinois, et préserve les styles ou sujets articulés
+explicitement demandés. Il est visible et modifiable dans le prompt, avant le rendu.
+
+L’assistant reçoit les références ajoutées, retirées ou modifiées et le changement
+de pose par rapport au contexte du prompt précédent. Les anciennes descriptions
+de l’assistant liées à d’autres références sont écartées de la discussion transmise,
+en conservant les demandes de l’utilisateur. Un contexte antérieur inconnu impose
+une nouvelle lecture des références. Les choix artistiques encore demandés restent
+à conserver. Tout se fait dans un seul appel, sans évaluation visuelle automatique.
+
+Les essais et réponses historiques restent inchangés, ainsi que les prompts
+explicitement saisis à la main. Après activation du nouveau code par redémarrage,
+utiliser **Affiner le prompt** sur un ancien projet pour appliquer ces nouvelles
+consignes. Leur efficacité visuelle reste à comparer à références, seed et réglages
+identiques, d’abord sans LoRA ; aucune génération de contrôle n’est automatique.
+
 ## Essais et réglages
 
 Chaque essai conserve les images effectivement utilisées, la pose et son angle,
@@ -70,11 +111,15 @@ La seed reste une chaîne de caractères pour conserver sa précision entière.
 
 ### LoRA MiniMax pour les images
 
-**Création Assistée MH** et **Modifier avec MiniMax** proposent quatre emplacements
-LoRA dans les paramètres du rendu. Aucun fichier n’est sélectionné par défaut.
-Choisir un fichier, régler sa force entre 0 et 1 et utiliser sa case pour activer
-ou désactiver son effet. Une force nulle désactive également l’effet. Le bouton
-**↻** actualise le catalogue sans effacer les choix, même si un fichier a disparu.
+**Création Assistée MH** et **Modifier avec MiniMax** partagent un sélecteur de
+quatre LoRA maximum. **Ajouter un LoRA** ouvre un catalogue recherchable ; seuls
+les LoRA choisis occupent une ligne. Cliquer sur le nom permet de remplacer le
+fichier. Chaque ligne propose activation, force numérique précise entre 0 et 1,
+montée/descente dans l’ordre, fiche d’information et retrait. Une force nulle
+désactive également l’effet. Aucun fichier n’est sélectionné par défaut.
+Le bouton **↻** actualise le catalogue sans effacer les choix, même si un fichier
+a disparu. Les doublons sont exclus du sélecteur. La fiche réutilise celle des
+LoRA MiniMax H3 ; son chargement se fait uniquement lorsqu’elle est ouverte.
 
 Le catalogue provient du ComfyUI de rendu : seuls les chemins `.safetensors`
 sous `minmax_nsfw/` sont proposés. Le dossier personnel
@@ -136,6 +181,55 @@ la galerie distante. La provenance enregistrée avec un essai indique qu’il s�
 d’une image personnelle ; aucune URL du site n’est attribuée à ces vignettes.
 Le sélecteur et les références de rendu réutilisent les fichiers d’origine.
 
+### Poses importées depuis un batch
+
+La sélection du 29 octobre 2026 ajoute **129 images dans 95 fiches K…**, après
+examen visuel des postures, des appuis et des angles. Les 27 lignes exclues et les
+premiers jets de 45 et 69 sont écartés ; leurs seconds rendus sont conservés,
+ainsi que les deux rendus distincts de 46. PF001/PF002 et la galerie restent présents.
+
+Dans **Mes poses**, le choix de vue indique l’orientation, la plongée éventuelle,
+la ligne du batch et le numéro du rendu. Plusieurs images du même angle restent
+sélectionnables. Les variations secondaires sont précisées ; neuf cadrages partiels
+portent « Classement à confirmer ». Les regroupements expriment une ressemblance
+visuelle, sans garantir une pose 3D identique. Cliquer sur une vignette ouvre
+l’original ; seule la grille emploie des miniatures de 320 × 480 pixels maximum.
+Les filtres **Dos**, **Trois-quarts dos**, **Plongée** et **Contre-plongée** utilisent
+les vues disponibles. La recherche retrouve aussi la ligne et la version.
+
+L’import conserve les PNG originaux octet pour octet et enregistre le batch,
+la ligne, le rendu, l’essai, l’asset et son SHA-256 dans chaque entrée, puis dans
+la référence figée de l’essai MH. Aucun nom de fichier ne décide du regroupement.
+Le manifeste relu est requis ; les futurs rendus ne sont pas importés automatiquement.
+
+Le catalogue enrichi est publié atomiquement dans
+`workspace/catalogs/ai-pose-gallery/personal/catalog-v2.json`, en conservant
+`catalog.json` pour les anciens processus encore en cours. Le nouveau Lab lit
+prioritairement `catalog-v2.json`, ou l’ancien index s’il n’existe pas. Cela permet
+de préparer l’import sans interrompre une génération : redémarrer le Lab au moment
+choisi, puis recharger la page, pour activer ces vues et l’aperçu original.
+
+Import local, sans réseau ni génération (simulation par défaut) :
+
+```powershell
+python -m panelforge.infrastructure.personal_pose_import --workspace workspace --manifest chemin/manifest.json
+python -m panelforge.infrastructure.personal_pose_import --workspace workspace --manifest chemin/manifest.json --apply
+```
+
+Le manifeste est une liste d’entrées explicites avec `provenance`, classification,
+empreinte et exclusions. Une relance identique ne crée aucun doublon ; un ID
+réutilisé avec un contenu différent est refusé. Les sources et fichiers existants
+sont vérifiés avant fusion. La sauvegarde, le manifeste et le reçu sont dans
+`personal/imports/<import_id>/`. Pour rétablir l’index antérieur :
+
+```powershell
+python -m panelforge.infrastructure.personal_pose_import --workspace workspace --rollback krea-poses-20261029-v1
+python -m panelforge.infrastructure.personal_pose_import --workspace workspace --rollback krea-poses-20261029-v1 --apply
+```
+
+Le retour arrière est refusé si l’index a changé depuis l’import. Les PNG et
+les reçus restent sur disque pour audit ; aucun original du batch n’est supprimé.
+
 ## Organisation et validation
 
 - API dédiée : `/api/image-lab/mh-assisted` ; projets : `workspace/mh_edits`.
@@ -149,7 +243,10 @@ Tests à lancer par l’utilisateur :
 
 ```powershell
 python -m unittest discover -s tests -p "test_mh_assisted*.py"
+python -m unittest discover -s tests -p "test_minimax_loras_browser.py"
+python -m unittest discover -s tests -p "test_minimax_still_loras.py"
 python -m unittest discover -s tests -p "test_pose_catalog.py"
+python -m unittest discover -s tests -p "test_personal_pose_import.py"
 python -m unittest discover -s tests
 ```
 

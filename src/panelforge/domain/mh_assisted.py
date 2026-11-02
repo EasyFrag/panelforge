@@ -13,9 +13,13 @@ from .minimax_edit import (
 ENGINE = "mh"
 LABEL = "Création Assistée MH"
 COMPOSITION_RESOLUTION = "2"
-POSE_ROLE = ("Pose et point de vue uniquement : reproduire la posture et la disposition des corps. "
-             "L'intention définit les sujets, la direction artistique leur style. "
-             "Ne pas copier le mannequin gris, son absence de visage ni son fond.")
+MAX_UPLOAD_BYTES = 25 * 1024**2
+MAX_REFERENCE_BATCH_BYTES = 100 * 1024**2
+PROMPT_CONTRACT = "mh.assisted@1.1.0"
+POSE_ROLE = ("Posture, disposition et point de vue uniquement. Reconstruire une anatomie naturelle, "
+             "sans jointures mécaniques ni segments de mannequin. Respecter les appuis visibles ; "
+             "ne pas inventer les membres masqués. L'intention définit les sujets et leur tenue, "
+             "la direction artistique leur style.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,7 +36,7 @@ class Settings(MinimaxEditSettings):
 
 
 def context_snapshot(stage):
-    return {**minimax_context(stage), "engine": ENGINE, "prompt_contract": "mh.assisted@1.0.0",
+    return {**minimax_context(stage), "engine": ENGINE, "prompt_contract": PROMPT_CONTRACT,
             "creative": deepcopy(stage.get("creative", {}))}
 
 

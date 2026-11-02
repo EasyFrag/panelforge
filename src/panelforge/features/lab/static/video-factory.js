@@ -367,6 +367,14 @@
   }
   function renderToolbar() {
     if(!state.data)return;
+    const presetMenu=$("bulk-preset");
+    const presetOptions='<option value="">Appliquer un preset…</option>'+Object.entries(state.data.presets).map(
+      ([key,label])=>'<option value="'+escape(key)+'">'+escape(label)+'</option>').join("");
+    if(presetMenu.innerHTML!==presetOptions){
+      const selectedPreset=presetMenu.value;
+      presetMenu.innerHTML=presetOptions;
+      presetMenu.value=Object.hasOwn(state.data.presets,selectedPreset)?selectedPreset:"";
+    }
     const page=state.data.page;
     if($("pagination")){
       $("page-previous").disabled=state.busy||!page||page.offset===0;
@@ -424,7 +432,7 @@
     return '<label class="vf-check"><input type="checkbox" data-vf-field="'+path+'" '+(valueAt(state.draft,path)?"checked":"")+" "+(current()?.status!=="preparation"?"disabled":"")+">"+escape(label)+"</label>";
   }
   function localizedThanks(item,config,disabled) {
-    if((config.preset_origin||config.preset)!=="little_men_experimental")return "";
+    if(!["little_men_experimental","little_men_variety"].includes(config.preset_origin||config.preset))return "";
     const languages={...(state.data.thanks_languages||{auto:"Automatique · pays et ambiance"})};
     if(config.little_men_language==="Hindi")languages.Hindi="Hindi (ancien choix)";
     const selection=item.runtime?.thanks_selection;
@@ -440,6 +448,16 @@
     } catch (_) {}
     return '<section data-vf-localized-thanks><h3>Remerciement</h3><label>Langue parlée<select data-vf-field="little_men_language" '+disabled+'>'+Object.entries(languages).map(([key,label])=>'<option value="'+key+'" '+((config.little_men_language||"auto")===key?"selected":"")+">"+escape(label)+"</option>").join("")+'</select></label>'+
       provenance+'<label>Lieu / contexte de la scène<textarea data-vf-field="little_men_context" maxlength="2000" rows="2" '+disabled+'>'+escape(config.little_men_context||"")+'</textarea></label><p class="vf-source">'+escape(summary)+'</p><small class="vf-source">La langue du texte Instagram se règle séparément. Les gestes utiles à une solution durable, puis le résultat et le remerciement.</small></section>';
+  }
+  function varietySelection(item,config) {
+    if((config.preset_origin||config.preset)!=="little_men_variety")return "";
+    const selection=item.runtime?.thanks_selection,assortment=selection?.variety,choice=selection?.variety_choice;
+    const objects=state.data.variety_objects||{},mechanisms=state.data.variety_mechanisms||{};
+    const proposed=assortment?.candidates?.map(id=>objects[id]||id)||[];
+    const chosen=choice?.objects?.map(obj=>objects[obj.catalog_id]||obj.name)||[];
+    return '<section data-vf-variety><h3>Variété des solutions</h3><p class="vf-source">12 objets proposés parmi une banque de 80. Les choix récents orientent la variété ; l’efficacité de l’aide reste prioritaire.</p>'+
+      (proposed.length?'<details><summary>Objets proposés pour ce Plan</summary><p>'+escape(proposed.join(' · '))+'</p></details>':'<p class="vf-source">L’assortiment sera choisi lors de la préparation du Plan, puis conservé pour cette fiche.</p>')+
+      (choice?'<p><strong>Moyen retenu :</strong> '+escape(chosen.length?chosen.join(' · '):'Main seule')+'</p><p><strong>Mécanisme :</strong> '+escape(mechanisms[choice.mechanism_family]||choice.mechanism_family)+'</p>':'')+'</section>';
   }
   function renderInspector() {
     const item=current();if(!item){$("inspector").innerHTML='<p class="vf-empty">Sélectionne une vidéo pour voir ses réglages.</p>';return;}
@@ -462,6 +480,7 @@
       '<section><div class="vf-fields"><label>Mode<select data-vf-field="mode" '+disabled+'><option value="h3" '+(config.mode==="h3"?"selected":"")+'>H3 / FL2V</option><option value="ref2v" '+(config.mode==="ref2v"?"selected":"")+'>REF2V</option></select></label><label>Nombre de plans<select data-vf-field="shot_count" '+disabled+'><option value="auto">Auto</option>'+[1,2,3,4,5,6].map(n=>'<option '+(config.shot_count===n?"selected":"")+">"+n+"</option>").join("")+'</select></label></div>'+
       '<label>Intention<textarea data-vf-field="intention" rows="5" '+disabled+'>'+escape(config.intention)+'</textarea></label><details><summary>Prompt final déjà préparé</summary><p class="vf-source">Un prompt final renseigné est utilisé directement, sans refaire le plan.</p><textarea data-vf-field="final_prompt" aria-label="Prompt final" rows="6" '+disabled+'>'+escape(config.final_prompt)+'</textarea></details></section>'+
       localizedThanks(item,config,disabled)+
+      varietySelection(item,config)+
       '<section><h3>Rendu vidéo</h3><p class="vf-source">'+escape(config.render.recipe.id)+" · "+escape(config.render.recipe.version)+'</p><div class="vf-fields">'+field("Durée (s)","render.settings.duration_seconds","number",'min="5" max="15" step="0.5"')+field("Résolution (MP)","render.settings.megapixels","number",'min="0.1" max="4" step="0.1"')+'</div><p class="vf-source">La durée de rendu ne réécrit pas un prompt déjà préparé.</p>'+
       '<details><summary>Réglages avancés</summary><div class="vf-fields">'+selectField("Ratio","render.settings.aspect_ratio",["9:16 (Portrait Widescreen)","16:9 (Widescreen)","1:1 (Square)","2:3 (Portrait Photo)","3:2 (Photo)","3:4 (Portrait Standard)","4:3 (Standard)","21:9 (Ultrawide)"])+field("Résolution initiale (MP)","render.initial_megapixels","number",'min="0.1" max="4" step="0.1"')+
       field("Steps","render.settings.steps","number",'min="2" max="100"')+field("Seed","render.settings.seed","text")+'</div>'+check("Conserver cette seed","render.seed_locked")+check("Musique","render.music_enabled")+field("Checkpoint (vide : défaut de la recette)","render.checkpoint")+

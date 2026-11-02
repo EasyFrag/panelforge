@@ -14,13 +14,15 @@ from panelforge.application.video_factory import VideoFactoryService
 from panelforge.application.video_factory_workflows import FactoryWorkflows
 from panelforge.application.vocal_policy import validate_speech, vocal_policy
 from panelforge.domain.localized_speech import (
-    LOCALIZED_THANKS_V1, LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4, STABLE_THANKS_LANGUAGES, THANKS_LANGUAGES, FIXED_THANKS,
+    LOCALIZED_THANKS_V1, LOCALIZED_THANKS_V2, LOCALIZED_THANKS_V3, LOCALIZED_THANKS_V4,
+    LOCALIZED_THANKS_V5, STABLE_THANKS_LANGUAGES, THANKS_LANGUAGES, FIXED_THANKS,
 )
 from panelforge.domain.little_men_languages import (
     LANGUAGE_POOLS, classify_context, make_selection, recent_languages, selection_instructions,
 )
 from panelforge.domain.prompt_composition import PreparationIntent
 from panelforge.domain.video_factory import (
+    LITTLE_MEN_EXPERIMENTAL_INTENT,
     apply_preset, configuration, invalidate, new_item, preparation_text, validate_shape,
 )
 from panelforge.infrastructure.factory_image_context import FactoryImageContext
@@ -33,6 +35,8 @@ def config_for(context="", image_context=None):
     source = configuration()
     source["references"] = [dict(asset_id="asset-image", role="unassigned", label="Titre français")]
     config = apply_preset(source, "little_men_experimental", source)
+    # Shared historical fixture: current-preset tests explicitly reapply the preset.
+    config.update(little_men_direction_version=5, intention=LITTLE_MEN_EXPERIMENTAL_INTENT)
     config["little_men_context"] = context
     if image_context:
         config["references"][0]["scene_context"] = dict(asset_id="asset-image", origin="PNG KREA",
@@ -267,7 +271,7 @@ class FactoryLanguageLifecycleTest(unittest.TestCase):
         adapter._session(item, Mock(), lambda: False, Mock())
         second = adapter.composition.configure.call_args.kwargs["preparation_intent"]
         self.assertEqual(first, second)
-        self.assertEqual((first.speech_policy, first.speech_language), (LOCALIZED_THANKS_V4, "Japanese"))
+        self.assertEqual((first.speech_policy, first.speech_language), (LOCALIZED_THANKS_V5, "Japanese"))
         adapter.composition.stream_generate.assert_not_called()
         adapter.prompt_lab.stream_structure_brief.assert_not_called()
 

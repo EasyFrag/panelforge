@@ -1,4 +1,4 @@
-"""User-run offline regressions for targeted needs. No real LLM or rendering."""
+"""User-run regressions for frozen v4 needs and explicit preset upgrades."""
 from copy import deepcopy
 from dataclasses import replace
 import json
@@ -20,14 +20,29 @@ from panelforge.domain.localized_speech import FIXED_THANKS, LOCALIZED_THANKS_V3
 from panelforge.domain.prompt_lab import CreativeFreedomAxes
 from panelforge.domain.video_factory import (
     LITTLE_MEN_EXPERIMENTAL_INTENT, LITTLE_MEN_EXPERIMENTAL_INTENT_V3,
+    LITTLE_MEN_EXPERIMENTAL_INTENT_V4,
     apply_preset, invalidate, new_item, preparation_text,
 )
 from panelforge.domain.video_preparation import ClassicCinematicSettings
 from panelforge.infrastructure.storage import LocalPromptCompositionStore
 from tests.test_video_factory import FakeWorkflows, MemoryStore
 from tests.test_video_factory_experimental import speech_fixture
-from tests.test_video_factory_languages import config_for
+from tests.test_video_factory_languages import config_for as current_config_for
 from tests.test_video_preparation_recipes import preparation_service
+
+
+def config_for(*args, **kwargs):
+    """These regressions reopen v4 input; a new preset is covered separately."""
+    config = current_config_for(*args, **kwargs)
+    config["intention"] = LITTLE_MEN_EXPERIMENTAL_INTENT_V4
+    config["little_men_direction_version"] = None
+    return config
+
+
+def v4_selection(config, identity):
+    return {**make_selection(config, identity), "version": 4,
+            "flood_first_action": "plunger", "drought_result": "lush_growth",
+            "weather_direction": "v1"}
 
 
 class SceneNeedTest(unittest.TestCase):
@@ -46,7 +61,7 @@ class SceneNeedTest(unittest.TestCase):
                 config = config_for(text)
                 before = deepcopy(config)
                 self.assertEqual(scene_need(config), expected)
-                source = preparation_text(config, thanks_selection=make_selection(config, "new"))
+                source = preparation_text(config, thanks_selection=v4_selection(config, "new"))
                 for kind, phrase in NEED_DIRECTIONS.items():
                     self.assertEqual(source.count(phrase), int(kind == expected))
                 self.assertEqual(config, before)
@@ -65,7 +80,7 @@ class SceneNeedTest(unittest.TestCase):
         self.assertEqual(scene_need(config), "drought")
         config["intention"] = "Réparer le pont cassé."
         self.assertEqual(scene_need(config), "repair")
-        source = preparation_text(config, thanks_selection=make_selection(config, "new"))
+        source = preparation_text(config, thanks_selection=v4_selection(config, "new"))
         self.assertFalse(any(phrase in source for phrase in NEED_DIRECTIONS.values()))
 
     def test_repair_unknown_and_conflicting_scenes_add_no_forced_goal(self):
@@ -79,7 +94,7 @@ class SceneNeedTest(unittest.TestCase):
             with self.subTest(text=text):
                 config = config_for(text)
                 self.assertEqual(scene_need(config), expected)
-                source = preparation_text(config, thanks_selection=make_selection(config, "new"))
+                source = preparation_text(config, thanks_selection=v4_selection(config, "new"))
                 self.assertFalse(any(phrase in source for phrase in NEED_DIRECTIONS.values()))
 
     def test_weather_keeps_existing_hazards_and_limits_umbrella_ban_to_tornado(self):
@@ -97,7 +112,7 @@ class SceneNeedTest(unittest.TestCase):
                                ("Orage et pluie", "storm"), ("Pluie", "rain")):
             with self.subTest(kind=expected):
                 config = config_for(text)
-                source = preparation_text(config, thanks_selection=make_selection(config, "weather"))
+                source = preparation_text(config, thanks_selection=v4_selection(config, "weather"))
                 self.assertEqual("Aucun parapluie." in source, expected == "tornado")
                 self.assertIn(NEED_DIRECTIONS[expected], source)
         config = config_for(image_context={"intention": "Une tornade", "prompt": "A tornado in the rain"})
@@ -116,7 +131,7 @@ class SceneNeedTest(unittest.TestCase):
 
 
 class NeedLifecycleTest(unittest.TestCase):
-    def test_existing_v4_needs_keep_locked_source_and_new_selections_use_current_goals(self):
+    def test_frozen_v4_need_markers_keep_their_historical_goals(self):
         for context, kind, marker, old_goal in (
             ("Une inondation en ville", "flood", "flood_first_action",
              "Évacuer l’eau hors de la zone protégée et montrer une baisse durable du niveau."),
@@ -125,7 +140,7 @@ class NeedLifecycleTest(unittest.TestCase):
         ):
             with self.subTest(kind=kind):
                 config = config_for(context)
-                selection = make_selection(config, kind)
+                selection = v4_selection(config, kind)
                 old_selection = {key: value for key, value in selection.items() if key != marker}
                 old_source = config["intention"] + "\n\n" + old_goal
                 self.assertEqual(preparation_text(config, thanks_selection=old_selection),
@@ -140,7 +155,7 @@ class NeedLifecycleTest(unittest.TestCase):
         for text, kind in (("Tornade", "tornado"), ("Orage et pluie", "storm"), ("Pluie", "rain")):
             with self.subTest(kind=kind):
                 config = config_for(text)
-                selected = make_selection(config, "weather")
+                selected = v4_selection(config, "weather")
                 historical = {key: value for key, value in selected.items() if key != "weather_direction"}
                 self.assertEqual(preparation_text(config, thanks_selection=historical),
                                  preparation_text_v3(config, config["intention"], historical))
@@ -150,7 +165,7 @@ class NeedLifecycleTest(unittest.TestCase):
                 self.assertEqual(preparation_text(config, thanks_selection=resolved), current)
         # Previously, these manual notes were unrecognized and image drought won.
         config = config_for("Pluie", {"intention": "Sécheresse"})
-        selected = make_selection(config, "weather")
+        selected = v4_selection(config, "weather")
         historical = {key: value for key, value in selected.items() if key != "weather_direction"}
         self.assertEqual(preparation_text(config, thanks_selection=historical),
                          preparation_text_v3(config, config["intention"] + "\n\n" + NEED_DIRECTIONS["drought"], historical))
@@ -181,7 +196,7 @@ class NeedLifecycleTest(unittest.TestCase):
                 self.assertFalse(duplicate["config"]["social"]["enabled"])
                 self.assertNotIn("thanks_selection", duplicate["runtime"])
 
-    def test_adapter_keeps_v3_policy_and_explicit_reapply_upgrades_to_v4(self):
+    def test_adapter_keeps_v3_policy_and_explicit_reapply_upgrades_to_current_version(self):
         adapter = FactoryWorkflows(prompt_lab=Mock(), composition=Mock(), render=None,
             dlss=None, social=None, episodes=None, assets=None, coordinator=None)
         adapter.prompt_lab.get_session.return_value = NS(session_id="session", references=[])
@@ -189,7 +204,7 @@ class NeedLifecycleTest(unittest.TestCase):
         config = config_for("Sécheresse, Corée")
         config["intention"] = LITTLE_MEN_EXPERIMENTAL_INTENT_V3
         item = new_item("Image", config, {}, "old")
-        selection = {**make_selection(config, "old"), "version": 3}
+        selection = {**v4_selection(config, "old"), "version": 3}
         selection.pop("flood_first_action")  # Fields absent in historical selections.
         selection.pop("drought_result")
         selection.pop("weather_direction")
@@ -201,13 +216,12 @@ class NeedLifecycleTest(unittest.TestCase):
         before = deepcopy(item["config"])
         item["config"] = apply_preset(before, "little_men_experimental", item["source_config"])
         invalidate(item, before)
-        self.assertEqual(item["runtime"]["thanks_selection"]["version"], 4)
-        self.assertEqual(item["runtime"]["thanks_selection"]["flood_first_action"], "plunger")
-        self.assertEqual(item["runtime"]["thanks_selection"]["drought_result"], "lush_growth")
-        self.assertEqual(item["runtime"]["thanks_selection"]["weather_direction"], "v1")
+        self.assertEqual(item["runtime"]["thanks_selection"]["version"], 8)
+        self.assertNotIn("flood_first_action", item["runtime"]["thanks_selection"])
+        self.assertNotIn("weather_direction", item["runtime"]["thanks_selection"])
         self.assertEqual(item["runtime"]["thanks_selection"]["language"], selection["language"])
-        self.assertIn(NEED_DIRECTIONS["drought"],
-                      preparation_text(item["config"], thanks_selection=item["runtime"]["thanks_selection"]))
+        source = preparation_text(item["config"], thanks_selection=item["runtime"]["thanks_selection"])
+        self.assertFalse(any(direction in source for direction in NEED_DIRECTIONS.values()))
 
 
 class NeedRequestTest(unittest.TestCase):
@@ -218,7 +232,7 @@ class NeedRequestTest(unittest.TestCase):
                                        ("Un orage", "storm", ""), ("De la pluie", "rain", "")):
             with self.subTest(kind=kind), TemporaryDirectory() as directory:
                 config = config_for(context + "\n" + country)
-                selection = make_selection(config, "image")
+                selection = v4_selection(config, "image")
                 source = preparation_text(config, thanks_selection=selection)
                 plan, writer, _ = speech_fixture("Japanese", "ありがとう！")
                 service, gateway, session, composition = preparation_service(

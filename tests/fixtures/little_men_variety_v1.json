@@ -1,0 +1,47 @@
+{
+  "selection": {
+    "catalog_version": "1.0.0",
+    "candidates": [
+      "zipper",
+      "clothespin",
+      "sewing_needle",
+      "thread_spool",
+      "button",
+      "safety_pin",
+      "shoelace",
+      "belt_buckle",
+      "thimble",
+      "elastic_band",
+      "funnel",
+      "colander"
+    ],
+    "mechanism_counts": {
+      "link": 0,
+      "separate": 0,
+      "move": 0,
+      "redirect": 0,
+      "absorb_remove": 0,
+      "reshape": 0,
+      "temperature": 0,
+      "support": 0,
+      "contain": 0,
+      "shield": 0,
+      "other": 0
+    },
+    "mechanism_priority": [
+      "link",
+      "separate",
+      "move",
+      "redirect",
+      "absorb_remove",
+      "reshape",
+      "temperature",
+      "support",
+      "contain",
+      "shield",
+      "other"
+    ]
+  },
+  "selection_instructions": "OBJECT ASSORTMENT AND MECHANISM MEMORY — PLAN ONLY\nIdentify the principal danger and its target from the actual scene before choosing an intervention. First consider the supplied objects for a coherent, readable solution. Object names are invitations to adapt their physical properties, never prescribed answers to a problem. The assortment has no object-to-mechanism assignments. Accessories remain optional. If the assortment is unsuitable or direct hand action works more clearly, choose another object or no accessory and explain the departure in variety_choice.departure_reason. Do not add an unnecessary accessory to satisfy a list.\nAvailable objects (stable catalog_id: canonical English name):\n- zipper: zipper\n- clothespin: clothespin\n- sewing_needle: sewing needle\n- thread_spool: spool of thread\n- button: button\n- safety_pin: safety pin\n- shoelace: shoelace\n- belt_buckle: belt buckle\n- thimble: thimble\n- elastic_band: elastic band\n- funnel: funnel\n- colander: colander\nMain mechanism families, ordered from less recently used with the other fallback last, and their recent accepted Plan counts: link (Connect or join): 0; separate (Separate or cut): 0; move (Move or transport): 0; redirect (Redirect a course or flow): 0; absorb_remove (Capture, absorb or extract): 0; reshape (Deform or reshape): 0; temperature (Change temperature): 0; support (Support or stabilize): 0; contain (Confine or contain): 0; shield (Interpose a screen): 0; other (Other physical operation): 0.\nPrefer a less-used mechanism when it genuinely suits the scene. These are soft preferences, not a rotation quota or mandatory family. Effectiveness, lasting benefit and readability within the requested duration take priority. Choose the family of the decisive operation that produces the benefit, not the preliminary gestures or a general goal. Explain that actual operation and its effect in help_contract.mechanism; merely changing its family label does not create variety. Use other only when none of the ten usual families accurately describes the decisive physical operation, and describe that operation concretely in help_contract.mechanism. Other is a classification fallback, never a preferred choice for novelty or a way to avoid repetition counts. Declare only the objects actually used and the principal mechanism in variety_choice. For a supplied object keep its catalog_id and canonical name; for an object outside the assortment whose ID is not supplied, use catalog_id null and its English name. Never copy the assortment or family inventory into scene actions.",
+  "selection_instructions_v8": "OBJECT ASSORTMENT AND MECHANISM MEMORY — PLAN ONLY\nChoose the useful operation for the scene's main need and beneficiary before its accessory. Prefer suitable objects below; their properties are possibilities, with no problem or mechanism assigned to an object. Direct hand action or another object remains valid.\nAvailable objects (catalog_id: canonical English name):\n- zipper: zipper\n- clothespin: clothespin\n- sewing_needle: sewing needle\n- thread_spool: spool of thread\n- button: button\n- safety_pin: safety pin\n- shoelace: shoelace\n- belt_buckle: belt buckle\n- thimble: thimble\n- elastic_band: elastic band\n- funnel: funnel\n- colander: colander\nMechanism families in preference order, with recent usage counts: link: Connect or join (0); separate: Separate or cut (0); move: Move or transport (0); redirect: Redirect a course or flow (0); absorb_remove: Capture, absorb or extract (0); reshape: Deform or reshape (0); temperature: Change temperature (0); support: Support or stabilize (0); contain: Confine or contain (0); shield: Interpose a screen (0); other: Other physical operation (0).\nPrefer less-used operations only when equally effective and readable. This is not a quota or compulsory rotation. The other family is only a fallback when no usual family fits. Describe the decisive operation and its effect in continuity_invariants and scene actions. In variety_choice, record only accessories actually used, mechanism_family for the decisive operation, and a brief departure_reason for direct hand action or objects outside the assortment. For hand action alone, objects is empty. Use supplied catalog_id and exact English name when available; otherwise catalog_id is null. Mention each chosen accessory by that name in an action where it acts. Do not list the hand, scenery, unused candidates or alternatives as selected objects. The Writer preserves the Plan's choice; selection data and statistics are never part of the video's scene prose."
+}

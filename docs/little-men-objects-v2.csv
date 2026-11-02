@@ -1,0 +1,96 @@
+﻿id;objet;groupe;nom_transmis_au_modele;proprietes_transmises;caracteristiques_selection
+zipper;Fermeture éclair;haberdashery;zipper;flexible fabric tapes | interlocking teeth | sliding metal pull;flexible | interlocking | sliding
+clothespin;Pince à linge;haberdashery;clothespin;two opposed jaws | spring hinge | finger-operated levers;gripping | articulated | elastic
+sewing_needle;Aiguille à coudre;haberdashery;sewing needle;slender rigid shaft | pointed tip | threading eye;rigid | pointed | perforated
+thread_spool;Bobine de fil;haberdashery;spool of thread;long flexible thread | rotating cylindrical core | wound layers;cord | winding | rotating
+button;Bouton;haberdashery;button;rigid disc | threading holes | raised rim;rigid | perforated | rounded
+safety_pin;Épingle de sûreté;haberdashery;safety pin;springy wire loop | pointed arm | closing clasp;elastic | pointed | interlocking
+shoelace;Lacet;haberdashery;shoelace;long flexible cord | woven texture | stiff narrow tips;cord | flexible | textured
+belt_buckle;Boucle de ceinture;haberdashery;belt buckle;rigid loop | pivoting tongue | flat metal face;closed_loop | articulated | flat
+thimble;Dé à coudre;haberdashery;thimble;hollow metal cap | rounded end | dimpled surface;hollow | rounded | textured
+elastic_band;Élastique;haberdashery;elastic band;continuous rubber loop | stretchable length | elastic recoil;closed_loop | elastic | flexible
+funnel;Entonnoir;kitchen;funnel;wide open cone | narrow hollow neck | smooth inner surface;hollow | rounded | liquid_reservoir
+colander;Passoire;kitchen;colander;rigid bowl | many drainage holes | raised rim;hollow | perforated | rigid
+whisk;Fouet de cuisine;kitchen;whisk;looped springy wires | open cage shape | rigid handle;elastic | mesh | closed_loop
+rolling_pin;Rouleau à pâtisserie;kitchen;rolling pin;smooth cylindrical body | broad rolling contact | end handles;rolling | rigid | rounded
+wooden_spoon;Cuillère en bois;kitchen;wooden spoon;long rigid handle | shallow concave bowl | smooth wooden surface;rigid | hollow | rounded
+ladle;Louche;kitchen;ladle;deep open bowl | long rigid handle | curved lip;liquid_reservoir | hollow | rigid
+kitchen_tongs;Pince de cuisine;kitchen;kitchen tongs;paired rigid arms | pivoting joint | opposed gripping tips;gripping | articulated | rigid
+spatula;Spatule;kitchen;spatula;broad flat flexible blade | thin edge | rigid handle;flat | rigid | flexible
+corkscrew;Tire-bouchon;kitchen;corkscrew;helical metal spiral | pointed end | crosswise turning handle;threaded | pointed | rotating
+tea_infuser;Boule à thé;kitchen;tea infuser;hollow mesh ball | opening joint | fine perforations;mesh | hollow | articulated
+paper_clip;Trombone;stationery;paper clip;springy bent wire | nested loops | sliding contact;elastic | closed_loop | sliding
+binder_clip;Pince à dessin;stationery;binder clip;folded spring steel body | two pivoting handles | opposed jaws;gripping | elastic | articulated
+stapler;Agrafeuse;stationery;stapler;hinged pressing arm | metal staple magazine | flat lower anvil;articulated | interlocking | flat
+adhesive_tape;Rouleau de scotch;stationery;roll of adhesive tape;flexible adhesive strip | wound roll | tearable backing;adhesive | winding | flexible
+ruler;Règle;stationery;ruler;long straight rigid strip | flat faces | marked edge;rigid | flat | textured
+pencil;Crayon;stationery;pencil;rigid narrow shaft | pointed graphite end | cylindrical or faceted body;rigid | pointed | rolling
+eraser;Gomme;stationery;eraser;compressible rubber body | frictional surface | flat contact face;compressible | abrasive | flat
+scissors;Ciseaux;stationery;scissors;paired sharpened blades | central pivot | loop handles;cutting_edge | articulated | closed_loop
+rubber_stamp;Tampon encreur;stationery;rubber stamp;raised relief pattern | flat rubber face | ink-bearing surface;textured | flat | compressible
+magnifying_glass;Loupe;stationery;magnifying glass;transparent convex lens | rigid circular rim | solid handle;transparent | rounded | rigid
+hair_dryer;Sèche-cheveux;grooming;hair dryer;fan-driven airflow | heating element | directed outlet nozzle;airflow | thermal | hollow
+comb;Peigne;grooming;comb;row of rigid teeth | even narrow gaps | flat spine;rigid | perforated | flat
+toothbrush;Brosse à dents;grooming;toothbrush;dense flexible bristles | compact brush head | rigid handle;bristles | flexible | rigid
+hair_clip;Pince à cheveux;grooming;hair clip;curved opposed jaws | spring hinge | interleaving teeth;gripping | elastic | interlocking
+hair_roller;Bigoudi;grooming;hair roller;hollow cylinder | textured outer surface | open ends;hollow | textured | rolling
+tweezers;Pince à épiler;grooming;tweezers;two springy arms | tapered opposed tips | finger compression;gripping | elastic | pointed
+nail_file;Lime à ongles;grooming;nail file;abrasive faces | thin rigid strip | rounded end;abrasive | flat | rigid
+shaving_brush;Blaireau de rasage;grooming;shaving brush;dense soft bristle bundle | rounded brush tip | liquid-holding fibers;bristles | absorbent | compressible
+soap_bar;Savon;grooming;bar of soap;solid water-soluble bar | smooth curved faces | slippery when wet;rounded | flat | rigid
+makeup_brush;Pinceau à maquillage;grooming;makeup brush;soft flexible fibers | tapered brush tip | rigid handle;bristles | flexible | pointed
+clothes_brush;Brosse à vêtements;household;clothes brush;broad bristled face | stiff backing | closely spaced fibers;bristles | flat | rigid
+feather_duster;Plumeau;household;feather duster;light flexible plumes | wide fan of fibers | slender handle;bristles | flexible | compressible
+dustpan;Pelle à poussière;household;dustpan;broad shallow tray | thin front lip | raised side walls;flat | hollow | rigid
+hand_broom;Balayette;household;hand broom;stiff bundled bristles | broad brush edge | solid handle;bristles | flat | flexible
+sponge;Éponge;household;sponge;porous body | liquid absorption | compressible volume;porous | absorbent | compressible
+spray_bottle;Vaporisateur;household;spray bottle;liquid reservoir | trigger pump | narrow spray nozzle;liquid_reservoir | articulated | extrudable
+washbasin;Bassine;household;washbasin;wide open bowl | continuous bottom | raised rounded rim;liquid_reservoir | hollow | rounded
+doorstop;Cale-porte;household;doorstop;wedge-shaped body | sloped rigid face | textured base;rigid | flat | textured
+clothes_hanger;Cintre;household;clothes hanger;triangular frame | curved open hook | long narrow arms;rigid | closed_loop | rounded
+laundry_basket;Panier à linge;household;laundry basket;wide hollow body | perforated walls | carrying handles;hollow | perforated | closed_loop
+spring;Ressort;workshop;coil spring;helical wire coil | axial compression or extension | elastic recoil;elastic | compressible | rounded
+hinge;Charnière;workshop;hinge;two flat plates | central pivot pin | mounting holes;articulated | flat | perforated
+pulley;Poulie;workshop;pulley;grooved rotating wheel | central axle | cord-sized rim channel;rotating | rolling | rounded
+carabiner;Mousqueton;workshop;carabiner;rigid curved loop | spring-loaded gate | closing nose;closed_loop | articulated | interlocking
+clamp;Serre-joint;workshop;clamp;opposed pressing pads | adjustable threaded shaft | rigid frame;gripping | threaded | rigid
+screwdriver;Tournevis;workshop;screwdriver;rigid metal shaft | shaped engaging tip | turning handle;rotating | rigid | interlocking
+suction_cup;Ventouse;workshop;suction cup;flexible concave cup | airtight rim | deformable air pocket;suction | flexible | compressible
+horseshoe_magnet;Aimant en fer à cheval;workshop;horseshoe magnet;rigid curved body | two separated poles | magnetic field;magnetic | rigid | rounded
+nut_and_bolt;Écrou et boulon;workshop;nut and bolt;matched screw threads | rotating hexagonal nut | rigid metal shaft;threaded | rotating | interlocking
+paintbrush;Pinceau de peinture;workshop;paintbrush;flat flexible bristle bundle | liquid-holding fibers | rigid handle;bristles | absorbent | flat
+yo_yo;Yoyo;leisure;yo-yo;paired round discs | central cord axle | winding and unwinding string;rotating | winding | cord
+spinning_top;Toupie;leisure;spinning top;weighted round body | narrow contact tip | axial rotation;rotating | pointed | weighted
+juggling_ball;Balle de jonglage;leisure;juggling ball;soft rounded shell | granular filling | compressible grip;rounded | compressible | weighted
+kite;Cerf-volant;leisure;kite;light fabric membrane | slender supporting frame | attached flexible line;flexible | flat | cord
+fishing_reel;Moulinet de pêche;leisure;fishing reel;rotating line spool | crank handle | long wound line;rotating | winding | cord
+balloon;Ballon gonflable;leisure;balloon;thin elastic skin | enclosed air volume | stretchable neck;elastic | hollow | compressible
+pinwheel;Moulin à vent en papier;leisure;pinwheel;angled lightweight blades | central pivot | air-driven rotation;rotating | foldable | flat
+hand_fan;Éventail;leisure;hand fan;broad pleated surface | pivoted ribs | folding span;foldable | articulated | flat
+music_box;Boîte à musique;leisure;music box;winding key | rotating pinned cylinder | resonant metal comb;winding | rotating | resonant
+domino;Domino;leisure;domino;flat rigid tile | straight standing edges | marked faces;flat | rigid | textured
+matchbox;Boîte d’allumettes;containers;matchbox;sliding inner tray | hollow outer sleeve | abrasive side strip;sliding | hollow | abrasive
+egg_carton;Boîte à œufs;containers;egg carton;array of rounded cavities | folding lid | compressible pulp walls;hollow | foldable | compressible
+cardboard_tube;Tube en carton;containers;cardboard tube;hollow cylindrical body | open ends | light paper wall;hollow | rolling | compressible
+cork_stopper;Bouchon en liège;containers;cork stopper;porous cork body | slight compressibility | cylindrical shape;porous | compressible | rounded
+bottle_cap;Capsule;containers;bottle cap;shallow metal cup | crimped edge | flat circular top;hollow | flat | textured
+glass_jar;Bocal;containers;glass jar;transparent rigid walls | wide hollow body | threaded mouth;transparent | hollow | threaded
+mesh_bag;Filet à provisions;containers;mesh bag;flexible mesh body | interlaced strands | open handle loops;mesh | flexible | closed_loop
+ice_cube_tray;Bac à glaçons;containers;ice cube tray;repeated open cavities | flat supporting base | thin dividing walls;hollow | flat | liquid_reservoir
+cookie_tin;Boîte à biscuits;containers;cookie tin;rigid hollow container | removable lid | broad metal faces;hollow | lidded | rigid
+paper_cup;Gobelet en papier;containers;paper cup;open tapered cavity | thin compressible wall | rolled circular rim;hollow | compressible | liquid_reservoir
+glue_tube;Tube de colle;stationery;tube of glue;compressible tube | narrow outlet | viscous adhesive contents;compressible | extrudable | adhesive
+bellows;Soufflet;workshop;bellows;folding air chamber | paired hinged handles | narrow outlet nozzle;airflow | foldable | compressible
+needleless_syringe;Seringue sans aiguille;household;needleless syringe;transparent hollow barrel | sliding sealed piston | open blunt nozzle;transparent | sliding | liquid_reservoir | extrudable
+retractable_tape_measure;Mètre ruban rétractable;workshop;retractable tape measure;flexible marked strip | spring-loaded spool | retracting housing;retractable | winding | flexible
+hook_and_loop_tape;Bande autoagrippante;haberdashery;hook-and-loop tape;paired flexible strips | tiny hooks and fiber loops | peelable contact;interlocking | flexible | textured
+clothes_iron;Fer à repasser;household;clothes iron;flat heated soleplate | pointed front | rigid upper handle;thermal | flat | weighted
+piping_bag;Poche à douille;kitchen;piping bag;flexible tapered pouch | narrow shaped outlet | contents expelled by compression;flexible | compressible | extrudable
+tennis_racket;Raquette de tennis;sports;tennis racket;rigid oval frame | tensioned elastic strings | open string mesh | solid handle;mesh | elastic | flat | rigid
+basketball;Ballon de basket;sports;basketball;elastic air-filled sphere | pebbled outer skin | rounded rolling surface;elastic | rounded | textured | rolling
+jump_rope;Corde à sauter;sports;jump rope;long flexible cord | two end handles | rotating handle attachments;cord | flexible | rotating
+frisbee;Frisbee;sports;frisbee;broad curved disc | raised circular rim | stiff lightweight body;flat | rounded | rigid
+dumbbell;Haltère;sports;dumbbell;two solid end weights | central rigid grip | substantial mass;weighted | rigid | rounded
+swim_fin;Palme de natation;sports;swim fin;broad flexible blade | hollow foot pocket | raised reinforcing ribs;flexible | flat | hollow
+yoga_mat;Tapis de yoga;sports;yoga mat;broad flexible sheet | compressible textured surface | rollable body;flat | compressible | winding | textured
+roller_skate;Patin à roulettes;sports;roller skate;rigid chassis | rotating wheels | hollow boot;rolling | rotating | hollow

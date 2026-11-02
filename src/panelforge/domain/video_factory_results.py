@@ -38,7 +38,8 @@ def delivery_material(item):
     config = item.get("launch_snapshot") or item["config"]
     preset = config.get("preset_origin") or config["preset"]
     family = ("Histoire" if item["source"].get("kind") == "episode" else
-              {"little_men": "Petits hommes", "little_men_experimental": "Petits hommes", "lips": "Levres"}.get(preset, "Autres"))
+              {"little_men": "Petits hommes", "little_men_experimental": "Petits hommes",
+               "little_men_variety": "Petits hommes", "lips": "Levres"}.get(preset, "Autres"))
     previous = item.get("delivery") or {}
     if previous.get("asset_id") == asset_id and previous.get("folder"):
         # Keep legacy delivery keys/folders stable; old journals have no family field.

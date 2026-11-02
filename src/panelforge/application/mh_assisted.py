@@ -40,6 +40,90 @@ class MhAssistedService(MinimaxLoraSupport, QwenEditService):
     def _required_reference(stage):
         if not policy.render_inputs(stage):
             raise ValueError("Choisis une pose ou ajoute une image de référence pour créer avec MH.")
+        if sum(r["active"] for r in stage["references"]) > policy.MAX_ASSISTANT_IMAGES:
+            raise ValueError("L’assistant accepte au maximum 32 images, pose et exemple du preset compris.")
+
+    @staticmethod
+    def _uploads(references):
+        if not isinstance(references, list) or len(references) > policy.MAX_ASSISTANT_IMAGES:
+            raise ValueError("Choisis au maximum 32 images par ajout.")
+        result, total = [], 0
+        for ref in references:
+            if not isinstance(ref, dict) or set(ref) - {"name", "role", "usage", "content"}:
+                raise ValueError("Référence à importer invalide.")
+            data = ref.get("content")
+            if not isinstance(data, bytes) or not data or len(data) > policy.MAX_UPLOAD_BYTES:
+                raise ValueError("Choisis une image de 25 Mo maximum.")
+            total += len(data)
+            name, role, usage = ref.get("name", "Référence"), ref.get("role", ""), ref.get("usage", "render")
+            if not isinstance(name, str) or len(name) > 80 or not isinstance(role, str) or len(role) > 300:
+                raise ValueError("Nom ou rôle de référence invalide (80 et 300 caractères maximum).")
+            if usage not in {"render", "assistant"}:
+                raise ValueError("Usage d’image invalide.")
+            result.append(dict(name=name.strip() or "Référence", role=role, usage=usage, content=data))
+        if total > policy.MAX_REFERENCE_BATCH_BYTES:
+            raise ValueError("Choisis au maximum 100 Mo d’images par ajout.")
+        return result
+
+    @staticmethod
+    def _upload_signature(uploads):
+        return [{**{k: r[k] for k in ("name", "role", "usage")},
+                 "sha256": hashlib.sha256(r["content"]).hexdigest()} for r in uploads]
+
+    @staticmethod
+    def _append_uploads(stage, uploads, replace_id=None):
+        index = len(stage["references"])
+        if replace_id:
+            if replace_id.startswith("mh-") or len(uploads) != 1:
+                raise ValueError("Remplace une seule image personnelle à la fois.")
+            index = next((i for i, r in enumerate(stage["references"])
+                          if r["id"] == replace_id and r["active"]), None)
+            if index is None:
+                raise ValueError("Référence à remplacer introuvable.")
+            stage["references"][index]["active"] = False
+        names = {r["name"].casefold() for r in stage["references"] if r["active"]}
+        records = []
+        for ref in uploads:
+            label, suffix = ref["name"][:70], 2
+            name = label
+            while name.casefold() in names:
+                name, suffix = f"{label} {suffix}", suffix + 1
+            names.add(name.casefold())
+            records.append(dict(id=_id("ref"), asset_id="pending-upload", name=name,
+                                role=ref["role"], usage=ref["usage"], active=True))
+        stage["references"][index:index] = records
+        policy.validate_references(stage["references"])
+        return records
+
+    def _store_uploads(self, records, uploads):
+        # Decode the whole selection before persisting any of its image assets.
+        images = [self.images.normalize_source(ref["content"]) for ref in uploads]
+        for record, image in zip(records, images):
+            record["asset_id"] = self.assets.create(image, media_type="image/png").asset_id
+
+    def add_references(self, project_id, stage_id, *, revision, request_id, references, replace_id=None):
+        request_id = str(UUID(request_id))
+        uploads = self._uploads(references)
+        if not uploads:
+            raise ValueError("Choisis au moins une image à ajouter.")
+        signature = hashlib.sha256(json.dumps(dict(images=self._upload_signature(uploads), replace_id=replace_id),
+                                             sort_keys=True).encode()).hexdigest()
+        with self._lock:
+            project = deepcopy(self.projects.get(project_id))
+            stage = self._editable(project, stage_id)
+            previous = next((r for r in stage.get("reference_commands", []) if r["request_id"] == request_id), None)
+            if previous:
+                if previous["signature"] != signature:
+                    raise QwenEditConflict("Cet ajout a déjà été enregistré avec d’autres images.")
+                return project
+            self._editable(project, stage_id, revision)
+            records = self._append_uploads(stage, uploads, replace_id)
+            self._required_reference(stage)
+            self._store_uploads(records, uploads)
+            stage.setdefault("reference_commands", []).append(dict(request_id=request_id, signature=signature))
+            stage["prompt_fingerprint"] = None
+            stage["revision"] += 1
+            return self._save(project)
 
     def _creative(self, stage, changes):
         allowed = {"prompt_language", "preset_id", "art_style_id", "pose_id"}
@@ -85,7 +169,7 @@ class MhAssistedService(MinimaxLoraSupport, QwenEditService):
         self._required_reference(stage)
 
     def create_assisted(self, *, request_id, name, intention="", model_id="", prompt_language="en",
-                        preset_id=None, art_style_id="", pose_id=None, content=None):
+                        preset_id=None, art_style_id="", pose_id=None, content=None, references=None):
         identity = "mh-" + UUID(request_id).hex
         if not isinstance(name, str) or not name.strip() or len(name) > 120:
             raise ValueError("Donne un nom au projet (120 caractères maximum).")
@@ -94,11 +178,17 @@ class MhAssistedService(MinimaxLoraSupport, QwenEditService):
         if not isinstance(model_id, str) or len(model_id) > 300:
             raise ValueError("Modèle de l’assistant invalide.")
         policy.language(prompt_language)
-        if not pose_id and not content:
+        if content is not None and references is not None:
+            raise ValueError("Utilise une seule liste d’images de référence.")
+        uploads = self._uploads(references) if references is not None else []
+        if not pose_id and not content and not any(r["usage"] == "render" for r in uploads):
             raise ValueError("Choisis au moins une pose ou une image de référence.")
-        signature = hashlib.sha256(json.dumps(dict(name=name, intention=intention, model=model_id,
+        fingerprint = dict(name=name, intention=intention, model=model_id,
             language=prompt_language, preset=preset_id, art=art_style_id, pose=pose_id,
-            image=hashlib.sha256(content).hexdigest() if content else None), sort_keys=True).encode()).hexdigest()
+            image=hashlib.sha256(content).hexdigest() if content else None)
+        if references is not None:
+            fingerprint["references"] = self._upload_signature(uploads)
+        signature = hashlib.sha256(json.dumps(fingerprint, sort_keys=True).encode()).hexdigest()
         with self._lock:
             try:
                 previous = self.projects.get(identity)
@@ -115,8 +205,10 @@ class MhAssistedService(MinimaxLoraSupport, QwenEditService):
                 stage["references"].append(dict(id=_id("ref"), asset_id=asset.asset_id, name="Référence sujet",
                     role="Sujet et apparence selon l’intention. La pose du catalogue guide la posture si elle est sélectionnée.",
                     usage="render", active=True))
+            records = self._append_uploads(stage, uploads)
             self._creative(stage, dict(prompt_language=prompt_language, preset_id=preset_id,
                                        art_style_id=art_style_id, pose_id=pose_id))
+            self._store_uploads(records, uploads)
             project = dict(schema_version=1, engine=self.engine, id=identity, name=name.strip(), version=0,
                 created_at=_now(), updated_at=_now(), active_stage_id=stage["id"], stages=[stage],
                 intention=intention, creation_fingerprint=signature, export_path=None, export_error=None)
@@ -150,6 +242,13 @@ class MhAssistedService(MinimaxLoraSupport, QwenEditService):
         if render_after_prompt:
             raise ValueError("Le rendu MH se lance après la préparation du prompt.")
         return super().begin_message(project_id, stage_id, revision=revision, request_id=request_id)
+
+    def _decode_message(self, message, raw):
+        reply, prompt, selected_ids = super()._decode_message(message, raw)
+        # Recover older replies with their original contract; use the request's frozen inputs.
+        if message.get("policy_version") == prompting.VERSION:
+            prompt = prompting.finalize_prompt(prompt, message["context"])
+        return reply, prompt, selected_ids
 
     def restore_attempt(self, project_id, stage_id, attempt_id, *, revision):
         with self._lock:

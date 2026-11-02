@@ -87,6 +87,9 @@ class VideoFactoryHttpTest(unittest.TestCase):
         self.assertEqual(item["steps"]["dlss"]["status"], "pending")
         self.assertNotIn("little_men", state["presets"])
         self.assertEqual(state["presets"]["little_men_experimental"], "Petits hommes")
+        self.assertEqual(state["presets"]["little_men_variety"], "Petits hommes experimental")
+        self.assertEqual(len(state["variety_objects"]), 80)
+        self.assertIn("temperature", state["variety_mechanisms"])
         self.assertIn("little_men", state["preset_labels"])
         self.assertEqual(self.adapter.calls, [])
 
@@ -202,6 +205,7 @@ class VideoFactoryBrowserTest(unittest.TestCase):
               const select=document.getElementById(id);
               check(!select.querySelector('option[value="little_men"]'),'retired preset hidden');
               check(select.querySelector('option[value="little_men_experimental"]').textContent==='Petits hommes','retained preset renamed');
+              check(select.querySelector('option[value="little_men_variety"]').textContent==='Petits hommes experimental','new separate experimental preset');
               check(select.querySelector('option[value="auto"]').textContent==='Auto','auto available');
             }
             check(document.querySelector('#vf-item-preset').value==='little_men_experimental','individual preset');

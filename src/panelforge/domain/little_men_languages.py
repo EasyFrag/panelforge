@@ -10,6 +10,7 @@ import re
 import unicodedata
 
 from .localized_speech import STABLE_THANKS_LANGUAGES
+from .little_men_variety import is_variety
 
 LANGUAGE_POOLS = {
     "east_asia": ("Chinese", "Korean", "Japanese"),
@@ -117,6 +118,16 @@ def preference_order(identity, recent=()):
         counts[language], hashlib.sha256((identity + ":" + language).encode()).hexdigest()))
 
 
+def selection_version(config):
+    """Honor explicit versions; unmarked historical presets keep their old paths."""
+    version = config.get("little_men_direction_version")
+    if version is not None:
+        if type(version) is not int or version not in (5, 6, 7, 8):
+            raise ValueError("Version de direction Petits hommes inconnue.")
+        return version
+    return 6 if is_variety(config) else 5
+
+
 def make_selection(config, identity, recent=()):
     priority = preference_order(identity, recent)
     manual = config.get("little_men_language", "auto")
@@ -136,7 +147,7 @@ def make_selection(config, identity, recent=()):
             evidence = origin + " : " + evidence
     ordered = [language for language in priority if language in candidates]
     chosen = ordered[0] if group != "visual" else None
-    return dict(version=4, flood_first_action="plunger", drought_result="lush_growth", weather_direction="v1",
+    return dict(version=selection_version(config),
                 input_hash=selection_input(config), priority=priority,
                 candidates=ordered, group=group, reason=POOL_LABELS[group], evidence=evidence,
                 requested_language=chosen, language=chosen)
@@ -146,7 +157,10 @@ def recent_languages(items, *, exclude=None, limit=50):
     """Count other prepared/reserved choices, including queued work, once per fiche."""
     values = []
     for item in sorted(items, key=lambda i: i.get("updated_at", ""), reverse=True):
-        if item["id"] == exclude or (item["config"].get("preset_origin") or item["config"].get("preset")) != "little_men_experimental":
+        config = item["config"]
+        if item["id"] == exclude or not (
+                (config.get("preset_origin") or config.get("preset")) == "little_men_experimental"
+                or is_variety(config)):
             continue
         selection = item.get("runtime", {}).get("thanks_selection") or {}
         language = selection.get("language")

@@ -1,0 +1,81 @@
+﻿id;nom_fr;nom_transmis_llm;groupe;propositions_avant_patch_144_plans;choix_avant_patch_144_plans
+zipper;Fermeture éclair;zipper;haberdashery;26;0
+clothespin;Pince à linge;clothespin;haberdashery;36;0
+sewing_needle;Aiguille à coudre;sewing needle;haberdashery;21;0
+thread_spool;Bobine de fil;spool of thread;haberdashery;5;0
+button;Bouton;button;haberdashery;24;0
+safety_pin;Épingle de sûreté;safety pin;haberdashery;16;0
+shoelace;Lacet;shoelace;haberdashery;20;0
+belt_buckle;Boucle de ceinture;belt buckle;haberdashery;24;0
+thimble;Dé à coudre;thimble;haberdashery;39;0
+elastic_band;Élastique;elastic band;haberdashery;16;1
+funnel;Entonnoir;funnel;kitchen;32;1
+colander;Passoire;colander;kitchen;10;1
+whisk;Fouet de cuisine;whisk;kitchen;15;0
+rolling_pin;Rouleau à pâtisserie;rolling pin;kitchen;14;1
+wooden_spoon;Cuillère en bois;wooden spoon;kitchen;15;1
+ladle;Louche;ladle;kitchen;17;2
+kitchen_tongs;Pince de cuisine;kitchen tongs;kitchen;18;0
+spatula;Spatule;spatula;kitchen;31;0
+corkscrew;Tire-bouchon;corkscrew;kitchen;33;1
+tea_infuser;Boule à thé;tea infuser;kitchen;12;0
+paper_clip;Trombone;paper clip;stationery;20;0
+binder_clip;Pince à dessin;binder clip;stationery;23;1
+stapler;Agrafeuse;stapler;stationery;20;1
+adhesive_tape;Rouleau adhésif;roll of adhesive tape;stationery;16;1
+ruler;Règle;ruler;stationery;26;2
+pencil;Crayon;pencil;stationery;23;0
+eraser;Gomme;eraser;stationery;24;0
+scissors;Ciseaux;scissors;stationery;23;0
+rubber_stamp;Tampon encreur;rubber stamp;stationery;31;0
+magnifying_glass;Loupe;magnifying glass;stationery;25;0
+hair_dryer;Sèche-cheveux;hair dryer;grooming;24;0
+comb;Peigne;comb;grooming;38;0
+toothbrush;Brosse à dents;toothbrush;grooming;25;0
+hair_clip;Pince à cheveux;hair clip;grooming;16;0
+hair_roller;Bigoudi;hair roller;grooming;15;0
+tweezers;Pince à épiler;tweezers;grooming;14;0
+nail_file;Lime à ongles;nail file;grooming;27;0
+shaving_brush;Blaireau de rasage;shaving brush;grooming;17;0
+soap_bar;Savon;bar of soap;grooming;22;0
+makeup_brush;Pinceau à maquillage;makeup brush;grooming;26;0
+clothes_brush;Brosse à vêtements;clothes brush;household;20;0
+feather_duster;Plumeau;feather duster;household;17;0
+dustpan;Pelle à poussière;dustpan;household;28;0
+hand_broom;Balayette;hand broom;household;23;0
+sponge;Éponge;sponge;household;35;1
+spray_bottle;Vaporisateur;spray bottle;household;10;1
+washbasin;Bassine;washbasin;household;6;2
+doorstop;Cale-porte;doorstop;household;20;0
+clothes_hanger;Cintre;clothes hanger;household;41;0
+laundry_basket;Panier à linge;laundry basket;household;22;0
+spring;Ressort;coil spring;workshop;22;1
+hinge;Charnière;hinge;workshop;18;0
+pulley;Poulie;pulley;workshop;23;0
+carabiner;Mousqueton;carabiner;workshop;10;0
+clamp;Serre-joint;clamp;workshop;13;2
+screwdriver;Tournevis;screwdriver;workshop;7;0
+suction_cup;Ventouse;suction cup;workshop;15;0
+horseshoe_magnet;Aimant en fer à cheval;horseshoe magnet;workshop;21;1
+nut_and_bolt;Écrou et boulon;nut and bolt;workshop;38;0
+paintbrush;Pinceau de peinture;paintbrush;workshop;41;0
+yo_yo;Yoyo;yo-yo;leisure;13;0
+spinning_top;Toupie;spinning top;leisure;33;0
+juggling_ball;Balle de jonglage;juggling ball;leisure;18;0
+kite;Cerf-volant;kite;leisure;25;0
+fishing_reel;Moulinet de pêche;fishing reel;leisure;12;0
+balloon;Ballon gonflable;balloon;leisure;12;0
+pinwheel;Moulin à vent en papier;pinwheel;leisure;18;0
+hand_fan;Éventail;hand fan;leisure;19;1
+music_box;Boîte à musique;music box;leisure;35;0
+domino;Domino;domino;leisure;27;0
+matchbox;Boîte d’allumettes;matchbox;containers;14;0
+egg_carton;Boîte à œufs;egg carton;containers;32;0
+cardboard_tube;Tube en carton;cardboard tube;containers;34;1
+cork_stopper;Bouchon en liège;cork stopper;containers;12;0
+bottle_cap;Capsule;bottle cap;containers;29;0
+glass_jar;Bocal;glass jar;containers;5;1
+mesh_bag;Filet à provisions;mesh bag;containers;19;0
+ice_cube_tray;Bac à glaçons;ice cube tray;containers;19;0
+cookie_tin;Boîte à biscuits;cookie tin;containers;8;0
+paper_cup;Gobelet en papier;paper cup;containers;35;1

@@ -7,22 +7,30 @@ Combat schema, instruction, example, density or orientation is imported.
 from .prompt_recipe_text import prompt_text
 import json
 import re
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from panelforge.domain.minimax_h3 import H3CameraAmplitude, H3CameraDirective, H3CameraMotion, H3CameraSpeed
 from panelforge.domain.video_preparation import ClassicCinematicSettings
 from . import cinematic_core_v1 as core
+from . import little_men_causal as causal
+from . import little_men_standard as standard
 from .minimax_h3_protocol import extract_compiled_camera_clauses, compile_dialogue_tag, normalize_dialogue_language_tags
 from .revised_documents import strip_markdown_fence
 from .vocal_policy import speech_lines, validate_speech
 from .vocal_delivery import normalize_voiceovers
-from panelforge.domain.localized_speech import LOCALIZED_THANKS_POLICIES
+from panelforge.domain.localized_speech import (
+    LOCALIZED_THANKS_POLICIES, LOCALIZED_THANKS_V5, LOCALIZED_THANKS_V6, LOCALIZED_THANKS_V7,
+    LOCALIZED_THANKS_V8, LOCALIZED_THANKS_VARIETY_V8, STANDARD_HELP_POLICIES,
+)
+from panelforge.domain.little_men_direction import writer_intention_v8
 
 VERSION = "1.0.0"
 PLAN_CONTRACT = "minimax.h3.classic.cinematic_planned_v1"
 CONTRACTS = PLAN_CONTRACTS = {PLAN_CONTRACT}
 MARKER = "__PANELFORGE_CLASSIC_CINEMATIC_V1__:"
+CAUSAL_HELP_POLICIES = (LOCALIZED_THANKS_V5, LOCALIZED_THANKS_V6, LOCALIZED_THANKS_V7)
 
 # Render revision 0.4.0 adopts this exact Classic 1.0 policy, independently of
 # the historical Classique and Combat conversational prompt policies.
@@ -98,6 +106,62 @@ class Plan(_Model):
         return self
 
 
+class CausalPlan(Plan):
+    """Only new Petits hommes v5 preparations request this additional contract."""
+    help_contract: causal.HelpContract
+    shots: tuple[PlannedShot, ...] = Field(min_length=1, max_length=1)
+
+
+class VarietyPlan(CausalPlan):
+    """New experimental preset only; v5 keeps its original strict schema."""
+    variety_choice: causal.VarietyChoice
+
+
+class AdaptiveVarietyPlan(Plan):
+    """Version 7 only: a grounded useful contribution, with optional danger."""
+    help_contract: causal.AdaptiveHelpContract
+    variety_choice: causal.VarietyChoice
+    shots: tuple[PlannedShot, ...] = Field(min_length=1, max_length=1)
+
+
+class StandardVarietyPlan(Plan):
+    """Ordinary H3 Plan with only the experimental accessory/mechanism ledger."""
+    variety_choice: standard.VarietyChoice
+
+
+class HelpContextRequest(_Model):
+    status: Literal["needs_context"]
+    reason: str = Field(min_length=1, max_length=600, description="Concise French explanation of the missing goal or material contradiction that prevents any grounded useful assistance. Do not use this branch merely because the scene is calm or image metadata is absent. No scene, dialogue or solution proposal.")
+
+
+_CAUSAL_PLAN_MODELS = (CausalPlan, AdaptiveVarietyPlan)
+
+
+def _plan_model(speech_policy=None, plan=None):
+    if speech_policy == LOCALIZED_THANKS_V8:
+        return Plan
+    if speech_policy == LOCALIZED_THANKS_VARIETY_V8 or (speech_policy is None and isinstance(plan, dict)
+            and "variety_choice" in plan and "help_contract" not in plan):
+        return StandardVarietyPlan
+    if speech_policy == LOCALIZED_THANKS_V7 or (speech_policy is None and isinstance(plan, dict)
+            and isinstance(plan.get("help_contract"), dict) and "initial_state" in plan["help_contract"]):
+        return AdaptiveVarietyPlan
+    if speech_policy == LOCALIZED_THANKS_V6 or (speech_policy is None and isinstance(plan, dict) and "variety_choice" in plan):
+        return VarietyPlan
+    if speech_policy == LOCALIZED_THANKS_V5 or (speech_policy is None and isinstance(plan, dict) and "help_contract" in plan):
+        return CausalPlan
+    return Plan
+
+
+def _validate_causal_plan(plan, context=None):
+    causal.validate_contract(plan)
+    if isinstance(plan, (VarietyPlan, AdaptiveVarietyPlan)):
+        selection = context.get("variety_selection") if context is not None else None
+        if context is not None and selection is None:
+            raise ValueError("L’assortiment Petits hommes experimental est absent du contexte approuvé.")
+        causal.validate_variety_choice(plan, selection)
+
+
 class WrittenShot(_Model):
     phases: tuple[str, ...] = Field(min_length=1, max_length=2, description="One English action paragraph per approved phase, same order. Preserve actions, reactions, state changes and identities. Integrate the approved explicit scale relation naturally at the subject's appearance: retain its ratio, compared dimensions, scene landmark and body proportions rather than summarizing it as 'small'. Keep physical scale coherent with perspective during movement. If already established in opening_composition, respect it without repeating it. Every spoken line keeps its exact <d>[English] words</d> tag or its approved original language. No camera, framing, cue, pacing, end-state or transition repetition: the compiler inserts those fields.")
 
@@ -108,12 +172,24 @@ class Writer(_Model):
     non_diegetic_music: str = Field(min_length=1)
 
 
-def schema(stage: str, *_unused, plan: dict | None = None) -> str:
-    value = (Plan if stage == "beat_sheet" else Writer).model_json_schema()
+def schema(stage: str, *_unused, plan: dict | None = None, speech_policy=None) -> str:
+    model = _plan_model(speech_policy, plan)
+    value = (model if stage == "beat_sheet" else Writer).model_json_schema()
     if stage == "beat_sheet":
         value.setdefault("required", []).append("spoken_languages")
+        if issubclass(model, _CAUSAL_PLAN_MODELS):
+            # This preset supplies no canned scene, object or mechanism examples.
+            value["$defs"]["Camera"]["properties"]["target_clause"]["description"] = (
+                "English spatial continuation. Empty for shake/pov. No second movement or camera-control words. Static is valid.")
+            value["$defs"]["Phase"]["properties"]["cue"]["description"] = (
+                "English sentence anchoring this phase to its visible state or event. No camera or cut instruction.")
+            value["properties"]["spoken_languages"]["description"] = (
+                "The full English language name of the one spoken thank-you. Keep the native words in spoken_lines.")
+        if model is AdaptiveVarietyPlan:
+            definitions = value.pop("$defs")
+            value = {"$defs": definitions, "oneOf": [value, HelpContextRequest.model_json_schema()]}
     elif plan:
-        approved = Plan.model_validate(plan)
+        approved = model.model_validate(plan)
         shots = value["properties"]["shots"]
         shots["minItems"] = shots["maxItems"] = len(approved.shots)
         shots.pop("items", None)
@@ -128,8 +204,8 @@ def schema(stage: str, *_unused, plan: dict | None = None) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def writer_layout(plan: dict) -> str:
-    approved = Plan.model_validate(plan)
+def writer_layout(plan: dict, *, speech_policy=None) -> str:
+    approved = _plan_model(speech_policy, plan).model_validate(plan)
     layout = {"shots": [{"phases": [prompt_text('classic_cinematic.writer_layout.01', 'Action paragraph for shot {value1}, phase {value2}', value1=i + 1, value2=j + 1)
                for j in range(len(shot.phases))]} for i, shot in enumerate(approved.shots)]}
     return (prompt_text('classic_cinematic.writer_layout.02', '\nAPPROVED WRITER LAYOUT — preserve this nesting exactly. Shots are camera cuts; phases inside a shot are continuous, never separate shots. Replace each placeholder with its action paragraph; keep soundscape and music at the root. Each shot object has exactly one key, phases. For two phases, write two strings separated by a comma INSIDE that array; do not create phases1, phases2 or any numbered property.\n') + json.dumps(layout))
@@ -192,7 +268,10 @@ def requested_count(text: str, settings: ClassicCinematicSettings) -> int | None
 
 
 def check_count(shots, context: dict) -> None:
-    count = requested_count(context.get("source_text", ""), ClassicCinematicSettings.from_dict(context["settings"]))
+    source = context.get("source_text", "")
+    if context.get("speech_policy") in STANDARD_HELP_POLICIES:
+        source = writer_intention_v8(source)
+    count = requested_count(source, ClassicCinematicSettings.from_dict(context["settings"]))
     if count is not None and len(shots) != count:
         raise ValueError(f"Le Plan doit contenir exactement {count} plan(s).")
 
@@ -220,11 +299,19 @@ def decode_context(value: str) -> dict:
 
 def canonical_plan(content: str, context: dict) -> str:
     from .worker_visual_policy import validate as validate_worker
-    plan = Plan.model_validate_json(strip_markdown_fence(content))
+    model = _plan_model(context.get("speech_policy"))
+    raw = strip_markdown_fence(content)
+    if model is AdaptiveVarietyPlan:
+        _raise_context_request(json.loads(raw))
+    plan = model.model_validate_json(raw)
     validate_worker(plan.model_dump_json(), context.get("worker_visual_binding"))
     actions = " ".join(action for shot in plan.shots for phase in shot.phases for action in phase.actions)
     validate_worker(actions, context.get("worker_visual_binding"), require_links=True)
-    plan = Plan.model_validate(_normalize_speech(plan.model_dump(mode="json"), _speech_languages(plan)))
+    plan = model.model_validate(_normalize_speech(plan.model_dump(mode="json"), _speech_languages(plan)))
+    if issubclass(model, _CAUSAL_PLAN_MODELS):
+        _validate_causal_plan(plan, context)
+    elif context.get("speech_policy") in STANDARD_HELP_POLICIES:
+        standard.validate_plan(plan, context)
     check_count(plan.shots, context)
     header = core.reference_header(context, len(plan.shots))
     for text in plan.continuity_invariants:
@@ -244,11 +331,18 @@ def canonical_plan(content: str, context: dict) -> str:
         shot["duration_ms"] = round(elapsed * context["duration_ms"] / total) - start
         if shot["duration_ms"] < 500 * len(shot["phases"]):
             raise ValueError("Prévoyez au moins une demi-seconde par phase ou simplifiez le Plan.")
-    normalized = Plan.model_validate(value)
-    draft = Writer(shots=tuple(WrittenShot(phases=tuple(" ".join(p.actions) for p in s.phases)) for s in normalized.shots),
-        overall_soundscape=normalized.overall_soundscape, non_diegetic_music=normalized.non_diegetic_music)
+    normalized = model.model_validate(value)
+    draft = (Writer.model_validate(causal.canonical_writer(normalized)) if issubclass(model, _CAUSAL_PLAN_MODELS) else
+        Writer(shots=tuple(WrittenShot(phases=tuple(" ".join(p.actions) for p in s.phases)) for s in normalized.shots),
+            overall_soundscape=normalized.overall_soundscape, non_diegetic_music=normalized.non_diegetic_music))
     _compile(normalized, draft, dict(context))
     return normalized.model_dump_json(indent=2)
+
+
+def _raise_context_request(value) -> None:
+    if isinstance(value, dict) and value.get("status") == "needs_context":
+        request = HelpContextRequest.model_validate(value)
+        raise ValueError("Petits hommes experimental : contexte à préciser. " + request.reason)
 
 
 def compile_result(content: str, encoded: str, stage: str) -> tuple[str, str]:
@@ -257,7 +351,7 @@ def compile_result(content: str, encoded: str, stage: str) -> tuple[str, str]:
         return canonical_plan(content, context), encoded
     if not context.get("plan"):
         raise ValueError("Approuvez le Plan avant la rédaction Classique (deux appels).")
-    plan = Plan.model_validate(context["plan"])
+    plan = _plan_model(context.get("speech_policy")).model_validate(context["plan"])
     raw = json.loads(strip_markdown_fence(content))
     writer = Writer.model_validate(_normalize_numbered_phase_key(raw, plan))
     return _compile(plan, writer, context)
@@ -287,9 +381,6 @@ def _normalize_numbered_phase_key(value, plan: Plan):
 
 def _compile(plan: Plan, writer: Writer, context: dict) -> tuple[str, str]:
     from .worker_visual_policy import validate as validate_worker
-    validate_worker(writer.model_dump_json(), context.get("worker_visual_binding"))
-    validate_worker(" ".join(phase for shot in writer.shots for phase in shot.phases),
-                    context.get("worker_visual_binding"), require_links=True)
     # Unambiguous packaging mistake observed with local Writer: one approved
     # continuous shot / two phases returned as two singleton shot objects.
     # Keep exact prose/order; all camera, speech and content checks still run.
@@ -302,14 +393,36 @@ def _compile(plan: Plan, writer: Writer, context: dict) -> tuple[str, str]:
         # including for later manual prompt edits and render revisions.
         context["speech_language"] = speech_lines(compile_dialogue_tag(plan.spoken_languages[0], plan.spoken_lines[0]))[0][0]
     languages = _speech_languages(plan)
-    plan = Plan.model_validate(_normalize_speech(plan.model_dump(mode="json"), languages))
+    plan = type(plan).model_validate(_normalize_speech(plan.model_dump(mode="json"), languages))
     writer = Writer.model_validate(_normalize_speech(writer.model_dump(mode="json"), languages))
-    return core.compile_sequence(plan, writer, context, check_count=check_count,
+    if context.get("speech_policy") in CAUSAL_HELP_POLICIES:
+        _validate_causal_plan(plan, context)
+        writer = Writer.model_validate(causal.expand_writer(plan, writer.model_dump(mode="json")))
+        context["little_men_causal_actions"] = list(causal.protected_actions(plan).values())
+    elif context.get("speech_policy") in STANDARD_HELP_POLICIES:
+        standard.validate_plan(plan, context)
+        if isinstance(plan, StandardVarietyPlan):
+            context["little_men_variety_choice"] = plan.variety_choice.model_dump(mode="json")
+    validate_worker(writer.model_dump_json(), context.get("worker_visual_binding"))
+    validate_worker(" ".join(phase for shot in writer.shots for phase in shot.phases),
+                    context.get("worker_visual_binding"), require_links=True)
+    output, encoded = core.compile_sequence(plan, writer, context, check_count=check_count,
         validate_final=validate_final, encode_context=encode_context, action_field="actions",
         normalize_final=_normalize_vocal_delivery)
+    if context.get("speech_policy") in (*CAUSAL_HELP_POLICIES, *STANDARD_HELP_POLICIES):
+        # Core's generic Writer snapshot merges actions into paragraphs. Keep the
+        # approved Plan instead: references and choice provenance survive revision.
+        context["sequence_plan"] = plan.model_dump(mode="json")
+        encoded = encode_context(context)
+    return output, encoded
 
 
 def _normalize_vocal_delivery(content: str, context: dict) -> str:
+    if context.get("speech_policy") in (*CAUSAL_HELP_POLICIES, *STANDARD_HELP_POLICIES):
+        # This opt-in contract requests the present inhabitants' fixed thanks.
+        # Historical voice-over labels in source metadata must not retarget it
+        # or rewrite the protected action after it has been compiled.
+        return content
     result = normalize_voiceovers(content, context.get("source_text", ""))
     if result.applied or result.warnings:
         context["vocal_normalization"] = dict(
@@ -325,6 +438,18 @@ def prompt_errors(content: str, mode: str) -> tuple[str, ...]:
 
 
 def validate_final(content: str, context: dict) -> None:
+    if context.get("speech_policy") in CAUSAL_HELP_POLICIES:
+        protected = context.get("little_men_causal_actions")
+        if not protected:
+            raise ValueError("Le contrat causal approuvé de Petits hommes est absent.")
+        causal.validate_final(content, protected)
+    elif context.get("speech_policy") in STANDARD_HELP_POLICIES:
+        causal.validate_no_umbrella(content)
+        if context.get("speech_policy") == LOCALIZED_THANKS_VARIETY_V8:
+            choice = context.get("little_men_variety_choice")
+            if choice is None:
+                raise ValueError("Le choix d’objets approuvé de Petits hommes experimental est absent.")
+            standard.validate_chosen_objects(choice, " ".join(core.shot_bodies(content)))
     errors = list(prompt_errors(content, context["mode"]))
     if list(map(len, core.camera_layout(content))) != context["camera_phase_counts"]:
         errors.append("Conservez les phases dans leur plan.")
@@ -357,7 +482,14 @@ def validate_final(content: str, context: dict) -> None:
 def lint_document(content: str, stage: str, mode: str, *_unused) -> tuple[str, ...]:
     try:
         if stage == "beat_sheet":
-            Plan.model_validate_json(strip_markdown_fence(content))
+            raw = json.loads(strip_markdown_fence(content))
+            _raise_context_request(raw)
+            model = _plan_model(plan=raw)
+            plan = model.model_validate(raw)
+            if issubclass(model, _CAUSAL_PLAN_MODELS):
+                _validate_causal_plan(plan)
+            elif model is StandardVarietyPlan:
+                standard.validate_variety_choice(plan)
             return ()
         return prompt_errors(content, mode)
     except ValueError as error:

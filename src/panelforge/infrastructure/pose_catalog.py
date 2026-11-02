@@ -19,6 +19,9 @@ SOURCE_URL = "https://ai-pose-gallery.pages.dev/"
 MAX_INDEX_BYTES = 8 * 1024**2
 MAX_IMAGE_BYTES = 25 * 1024**2
 ANGLES = {"正面": "Face", "上から": "Plongée", "下から": "Contre-plongée", "横": "Profil", "斜め": "Trois-quarts"}
+PERSONAL_ANGLES = (*ANGLES.values(), "Dos", "Trois-quarts dos", "Angle non renseigné")
+ELEVATIONS = ("Hauteur du sujet", "Plongée", "Contre-plongée", "Non renseignée")
+PERSONAL_INDEX_NAME = "catalog-v2.json"
 FAMILIES = {"全身1人・標準系": "Corps entier", "全身1人・セクシー系": "Corps entier · expressif",
             "上半身1人": "Buste", "2人絡み": "Duo"}
 CATEGORIES = {"立ち": "Debout", "座り": "Assis", "膝立ち": "À genoux", "しゃがみ": "Accroupi",
@@ -82,6 +85,48 @@ def parse_catalog(content):
                 installed_at=datetime.now(UTC).isoformat(), entries=entries)
 
 
+def validate_personal_index(value):
+    """Validate the shared on-disk contract for readers and the explicit importer."""
+    if not isinstance(value, dict) or value.get("schema_version") != 1 or value.get("source") != "personal":
+        raise ValueError("Version des poses personnelles inconnue.")
+    entries = value.get("entries")
+    if not isinstance(entries, list) or len(entries) > 1000:
+        raise ValueError("Liste de poses personnelles invalide.")
+    if value.get("revision") != hashlib.sha256(_json_bytes(entries)).hexdigest():
+        raise ValueError("Révision des poses personnelles invalide.")
+    ids = set()
+    for item in entries:
+        if not isinstance(item, dict):
+            raise ValueError("Entrée de pose personnelle invalide.")
+        identity = item.get("id", "")
+        if (not isinstance(identity, str) or not _ID.fullmatch(identity)
+                or not identity.startswith("personal_") or identity in ids):
+            raise ValueError("Identifiant de pose personnelle invalide.")
+        ids.add(identity)
+        for key in ("pose_id", "number", "name", "family", "category", "angle"):
+            if not isinstance(item.get(key), str) or not item[key].strip() or len(item[key]) > 240:
+                raise ValueError("Métadonnées de pose personnelle invalides.")
+        if item["angle"] not in PERSONAL_ANGLES or item["family"] != "Mes poses":
+            raise ValueError("Classement de pose personnelle invalide.")
+        if "elevation" in item and item["elevation"] not in ELEVATIONS:
+            raise ValueError("Hauteur de vue personnelle invalide.")
+        if "confidence" in item and item["confidence"] not in ("high", "medium", "low"):
+            raise ValueError("Qualification de vue personnelle invalide.")
+        for key in ("view_label", "review_note"):
+            if key in item and (not isinstance(item[key], str) or len(item[key]) > 500):
+                raise ValueError("Description de vue personnelle invalide.")
+        if not _ID.fullmatch(item["pose_id"]) or not identity.startswith(item["pose_id"] + "_"):
+            raise ValueError("Groupe de pose personnelle invalide.")
+        if (item.get("original") != f"img/{identity}.png"
+                or item.get("thumbnail") not in (item["original"], f"thumbs/{identity}.png")):
+            raise ValueError("Chemin de pose personnelle invalide.")
+        if not re.fullmatch(r"[0-9a-f]{64}", item.get("sha256", "")):
+            raise ValueError("Empreinte de pose personnelle invalide.")
+        if item["thumbnail"] != item["original"] and not re.fullmatch(r"[0-9a-f]{64}", item.get("thumbnail_sha256", "")):
+            raise ValueError("Empreinte de vignette personnelle invalide.")
+    return value
+
+
 class LocalPoseCatalog:
     def __init__(self, workspace, *, downloader=download):
         self.root = Path(workspace).resolve() / "catalogs" / "ai-pose-gallery"
@@ -107,41 +152,18 @@ class LocalPoseCatalog:
         return self._cached
 
     def _personal_index(self):
-        path = self.root / "personal" / "catalog.json"
+        # Older running Labs keep reading the legacy index until their next restart.
+        path = self.root / "personal" / PERSONAL_INDEX_NAME
+        if not path.exists():
+            path = self.root / "personal" / "catalog.json"
         if not path.exists():
             return None
-        stamp = (path.stat().st_mtime_ns, path.stat().st_size)
+        stamp = (path.name, path.stat().st_mtime_ns, path.stat().st_size)
         if self._personal_cached is None or self._personal_stamp != stamp:
-            if path.is_symlink() or path.parent.is_symlink() or stamp[1] > MAX_INDEX_BYTES:
+            if path.is_symlink() or path.parent.is_symlink() or stamp[2] > MAX_INDEX_BYTES:
                 raise ValueError("Catalogue de poses personnelles invalide.")
             value = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(value, dict) or value.get("schema_version") != 1 or value.get("source") != "personal":
-                raise ValueError("Version des poses personnelles inconnue.")
-            entries = value.get("entries")
-            if not isinstance(entries, list) or len(entries) > 1000:
-                raise ValueError("Liste de poses personnelles invalide.")
-            if value.get("revision") != hashlib.sha256(_json_bytes(entries)).hexdigest():
-                raise ValueError("Révision des poses personnelles invalide.")
-            ids = set()
-            for item in entries:
-                if not isinstance(item, dict):
-                    raise ValueError("Entrée de pose personnelle invalide.")
-                identity = item.get("id", "")
-                if (not isinstance(identity, str) or not _ID.fullmatch(identity)
-                        or not identity.startswith("personal_") or identity in ids):
-                    raise ValueError("Identifiant de pose personnelle invalide.")
-                ids.add(identity)
-                for key in ("pose_id", "number", "name", "family", "category", "angle"):
-                    if not isinstance(item.get(key), str) or not item[key].strip() or len(item[key]) > 240:
-                        raise ValueError("Métadonnées de pose personnelle invalides.")
-                if item["angle"] not in ANGLES.values() or item["family"] != "Mes poses":
-                    raise ValueError("Classement de pose personnelle invalide.")
-                if not _ID.fullmatch(item["pose_id"]) or not identity.startswith(item["pose_id"] + "_"):
-                    raise ValueError("Groupe de pose personnelle invalide.")
-                if item.get("original") != f"img/{identity}.png" or item.get("thumbnail") != item["original"]:
-                    raise ValueError("Chemin de pose personnelle invalide.")
-                if not re.fullmatch(r"[0-9a-f]{64}", item.get("sha256", "")):
-                    raise ValueError("Empreinte de pose personnelle invalide.")
+            validate_personal_index(value)
             self._personal_cached, self._personal_stamp = value, stamp
         return self._personal_cached
 
@@ -157,10 +179,12 @@ class LocalPoseCatalog:
                 revisions = sorted({x["catalog_revision"] for x in entries})
                 revision = revisions[0] if len(revisions) == 1 else hashlib.sha256(_json_bytes(revisions)).hexdigest()
                 return dict(state="ready", source_url=SOURCE_URL, revision=revision,
+                    original_previews=True,
                     pose_count=len({x["pose_id"] for x in entries}), image_count=len(entries),
                     personal_pose_count=len({x["pose_id"] for x in entries if x.get("source_kind") == "personal"}),
                     categories=sorted({x["category"] for x in entries}), families=sorted({x["family"] for x in entries}),
-                    angles=list(ANGLES.values()))
+                    angles=[angle for angle in PERSONAL_ANGLES if any(
+                        angle in (x["angle"], x.get("elevation")) for x in entries)])
             except FileNotFoundError:
                 return dict(state="unavailable", source_url=SOURCE_URL, pose_count=0, image_count=0)
             except (ValueError, KeyError, TypeError, OSError) as error:
@@ -212,14 +236,16 @@ class LocalPoseCatalog:
     def image_path(self, entry_id, *, thumbnail=False):
         item = self.get(entry_id)
         if item.get("source_kind") == "personal":
-            # Use the supplied PNG unchanged for both the preview and the reference.
-            path = self.root / "personal" / item["original"]
+            # The reference always uses the unchanged original; thumbnails are separate.
+            relative = item["thumbnail" if thumbnail else "original"]
+            digest = item["thumbnail_sha256"] if relative != item["original"] else item["sha256"]
+            path = self.root / "personal" / relative
             if path.is_symlink() or not path.resolve().is_relative_to((self.root / "personal").resolve()):
                 raise ValueError("Chemin de pose personnelle invalide.")
             if path.stat().st_size > MAX_IMAGE_BYTES:
                 raise ValueError("Pose personnelle trop volumineuse.")
             data = path.read_bytes()
-            if hashlib.sha256(data).hexdigest() != item["sha256"]:
+            if hashlib.sha256(data).hexdigest() != digest:
                 raise ValueError("L’image de la pose personnelle a été modifiée.")
             with Image.open(BytesIO(data)) as image:
                 if image.format != "PNG" or image.width * image.height > 40_000_000:

@@ -6,16 +6,22 @@ import json
 from uuid import uuid4
 
 from .episodes import default_render_setup
-from .localized_speech import LEGACY_THANKS_LANGUAGES
-from .little_men_languages import scene_contexts, selection_input, selection_instructions
-from .little_men_direction import preparation_text_v3, preparation_text_v4
+from .localized_speech import LEGACY_THANKS_LANGUAGES, THANKS_LANGUAGES, STABLE_THANKS_LANGUAGES
+from .little_men_languages import scene_contexts, selection_input, selection_instructions, selection_version
+from .little_men_direction import (
+    LITTLE_MEN_STANDARD_INTENT, LITTLE_MEN_STANDARD_VARIETY_INTENT,
+    preparation_text_v3, preparation_text_v4, preparation_text_v5, preparation_text_v6,
+    preparation_text_v7, preparation_text_v8,
+)
+from .little_men_variety import PRESET_ID as VARIETY_PRESET_ID, is_variety
 
 STAGES = ("plan", "prompt", "video", "dlss", "social")
 LABELS = dict(plan="Plan", prompt="Prompt", video="Vidéo", dlss="DLSS", social="Texte IG")
 DEPENDENCIES = dict(plan=(), prompt=("plan",), video=("prompt",), dlss=("video",), social=("video",))
 TERMINAL = {"succeeded", "skipped", "failed", "cancelled"}
 PRESETS = {"source": "Réglages source", "auto": "Auto", "lips": "Lèvres",
-           "little_men_experimental": "Petits hommes", "custom": "Personnalisé"}
+           "little_men_experimental": "Petits hommes", VARIETY_PRESET_ID: "Petits hommes experimental",
+           "custom": "Personnalisé"}
 # Keep historical configurations readable without offering the retired preset.
 PRESET_LABELS = {**PRESETS, "little_men": "Petits hommes (ancien)"}
 ROLES = {
@@ -151,7 +157,7 @@ LITTLE_MEN_EXPERIMENTAL_INTENT_V3 = (
 )
 
 
-LITTLE_MEN_EXPERIMENTAL_INTENT = (
+LITTLE_MEN_EXPERIMENTAL_INTENT_V4 = (
     "Les petits hommes affrontent le problème de l’image. Une main géante descend du ciel avec un "
     "objet du quotidien, monumental pour eux, et le détourne pour apporter une aide ingénieuse et "
     "immédiatement compréhensible. Chaque geste fait progresser la même solution et laisse un "
@@ -162,10 +168,103 @@ LITTLE_MEN_EXPERIMENTAL_INTENT = (
 )
 
 
+LITTLE_MEN_EXPERIMENTAL_INTENT = (
+    "Identifier le problème principal de l’image et ce qu’il menace avant de choisir l’aide. "
+    "Dès les premiers instants, montrer le problème en action et ses conséquences visibles ; "
+    "un animal dangereux agit réellement sur la situation. La menace reste active pendant "
+    "l’approche de la main, jusqu’à ce que l’intervention la modifie. Une même main géante "
+    "descend du ciel et intervient directement ou avec des accessoires librement choisis, "
+    "facultatifs et cohérents avec l’échelle de la scène. Aucun parapluie ni ombrelle. "
+    "Enchaîner les gestes utiles à une même solution, sans nombre imposé : chaque geste agit "
+    "sur une cible visible, provoque une réaction et fait progresser la résolution. Montrer "
+    "le résultat concret et durable, efficace après le retrait de la main. Garder les personnages "
+    "et le décor reconnaissables. Les habitants profitent ensuite du bénéfice et interagissent "
+    "avec lui lorsque cela convient ; leur activité rend l’amélioration observable. La main "
+    "peut se retirer pendant ce moment. Terminer par le remerciement fourni, une seule fois, "
+    "bref et naturel, environ une seconde selon la langue. Les habitants peuvent poursuivre "
+    "leur activité en remerciant, sans pose collective obligatoire ni longue attente. Préserver "
+    "cette progression dans les actions du Plan puis du Prompt, en un seul plan continu adapté "
+    "à la durée disponible."
+)
+
+
 def current_experimental_intent(text):
     """Upgrade only untouched default intentions when starting a new preparation."""
     return (LITTLE_MEN_EXPERIMENTAL_INTENT
-            if text in (LITTLE_MEN_EXPERIMENTAL_INTENT_V2, LITTLE_MEN_EXPERIMENTAL_INTENT_V3) else text)
+            if text in (LITTLE_MEN_EXPERIMENTAL_INTENT_V2, LITTLE_MEN_EXPERIMENTAL_INTENT_V3,
+                        LITTLE_MEN_EXPERIMENTAL_INTENT_V4) else text)
+
+
+LITTLE_MEN_VARIETY_INTENT = LITTLE_MEN_EXPERIMENTAL_INTENT + (
+    " Pour choisir les accessoires, chercher d’abord une intervention cohérente dans l’assortiment "
+    "d’objets fixé pour cette fiche. Inventer leur usage à partir du problème visible, sans "
+    "association imposée entre un objet et un danger. Favoriser des objets et une opération "
+    "principale moins utilisés récemment, en gardant la pertinence et la lisibilité prioritaires. "
+    "Si l’assortiment ne convient pas, choisir un autre objet ou la main seule et expliquer "
+    "brièvement ce choix dans le Plan. Déclarer les objets effectivement employés et la famille "
+    "de l’opération déterminante, sans compter les gestes préparatoires comme des mécanismes "
+    "différents. Conserver ce choix dans le Prompt."
+)
+
+
+def current_variety_intent(text):
+    """Upgrade defaults only when explicitly preparing the separate variety preset."""
+    return (LITTLE_MEN_VARIETY_INTENT
+            if text in (LITTLE_MEN_EXPERIMENTAL_INTENT_V2, LITTLE_MEN_EXPERIMENTAL_INTENT_V3,
+                        LITTLE_MEN_EXPERIMENTAL_INTENT_V4, LITTLE_MEN_EXPERIMENTAL_INTENT) else text)
+
+
+LITTLE_MEN_ADAPTIVE_INTENT = (
+    "Dans un seul plan continu, comprendre l’objectif initial, le besoin réel et le bénéficiaire "
+    "de l’aide à partir de l’image et de son intention d’origine. Respecter les rôles, les efforts "
+    "déjà engagés et les propriétés fantastiques de la scène. Une difficulté, un effort ou une "
+    "activité à faciliter suffit ; ne pas inventer de danger, de panique ni d’aggravation. "
+    "Si un danger est établi, le rendre perceptible et actif : un animal réellement menaçant "
+    "agit et réagit à l’intervention ; un animal en difficulté peut être le bénéficiaire. "
+    "Une même main géante descend du ciel et apporte une contribution utile, directement ou "
+    "avec des accessoires facultatifs. Identifier la cible et l’opération utile avant de choisir "
+    "l’objet. Chercher dans l’assortiment fixé pour cette fiche, avec une préférence souple pour "
+    "les objets et mécanismes moins utilisés récemment ; pertinence et lisibilité priment. "
+    "Si nécessaire, choisir un autre objet ou la main seule et justifier brièvement ce choix "
+    "dans le Plan. Aucun parapluie, parasol ni ombrelle. Enchaîner les gestes utiles sans quota : "
+    "chaque geste agit sur la cible, provoque une réaction cohérente et fait progresser la même "
+    "aide. Un obstacle statique peut rester statique avant le geste utile. Montrer le changement "
+    "concret et durable puis le bénéfice observable, y compris lorsque le bénéficiaire n’est "
+    "pas humain. Les habitants utilisent ou apprécient le résultat lorsque cela convient. "
+    "Préserver les personnages et le décor reconnaissables ; tout changement des propriétés "
+    "de la scène doit découler de l’intervention montrée. La main peut se retirer pendant "
+    "que le bénéfice apparaît. Terminer par le remerciement fourni, unique, bref et naturel, "
+    "environ une seconde selon la langue, sans pose collective ni longue célébration. "
+    "Déclarer les objets réellement utilisés et la famille de l’opération principale dans "
+    "le Plan, puis conserver ces choix dans le Prompt. Si aucun besoin cohérent n’est étayé "
+    "ou qu’un conflit majeur l’empêche, signaler le contexte manquant au lieu d’inventer une "
+    "crise. Adapter la progression à la durée disponible sans pause imposée entre les étapes."
+)
+
+
+def current_adaptive_intent(text):
+    """Replace untouched defaults only after the configuration explicitly selects v7."""
+    return (LITTLE_MEN_ADAPTIVE_INTENT
+            if text in (LITTLE_MEN_EXPERIMENTAL_INTENT_V2, LITTLE_MEN_EXPERIMENTAL_INTENT_V3,
+                        LITTLE_MEN_EXPERIMENTAL_INTENT_V4, LITTLE_MEN_EXPERIMENTAL_INTENT,
+                        LITTLE_MEN_VARIETY_INTENT) else text)
+
+
+def current_standard_intent(text):
+    """Replace known defaults only for explicitly selected standard-H3 preparations."""
+    return (LITTLE_MEN_STANDARD_INTENT
+            if text in (LITTLE_MEN_EXPERIMENTAL_INTENT_V2, LITTLE_MEN_EXPERIMENTAL_INTENT_V3,
+                        LITTLE_MEN_EXPERIMENTAL_INTENT_V4, LITTLE_MEN_EXPERIMENTAL_INTENT,
+                        LITTLE_MEN_VARIETY_INTENT, LITTLE_MEN_ADAPTIVE_INTENT,
+                        LITTLE_MEN_STANDARD_VARIETY_INTENT) else text)
+
+
+def current_standard_variety_intent(text):
+    return (LITTLE_MEN_STANDARD_VARIETY_INTENT
+            if text in (LITTLE_MEN_EXPERIMENTAL_INTENT_V2, LITTLE_MEN_EXPERIMENTAL_INTENT_V3,
+                        LITTLE_MEN_EXPERIMENTAL_INTENT_V4, LITTLE_MEN_EXPERIMENTAL_INTENT,
+                        LITTLE_MEN_VARIETY_INTENT, LITTLE_MEN_ADAPTIVE_INTENT,
+                        LITTLE_MEN_STANDARD_INTENT) else text)
 
 
 # Historical intentions remain stored unchanged; new v2 preparations supersede this paragraph.
@@ -180,7 +279,8 @@ _LEGACY_THANKS_INSTRUCTIONS = (
 
 
 def is_experimental_little_men(config):
-    return (config.get("preset_origin") or config.get("preset")) == "little_men_experimental"
+    return ((config.get("preset_origin") or config.get("preset")) == "little_men_experimental"
+            or is_variety(config))
 
 
 def timestamp():
@@ -194,7 +294,7 @@ def fingerprint(value):
 
 def configuration(mode="h3"):
     return dict(mode=mode, preset="source", preset_origin=None, intention="", final_prompt="",
-                little_men_language="auto", little_men_context="",
+                little_men_language="auto", little_men_context="", little_men_direction_version=None,
                 references=[], shot_count=None, plan_model_id=PLAN_MODEL, writer_model_id=WRITER_MODEL,
                 profile={"id": f"minimax.h3.{'fl2va' if mode == 'h3' else 'ref2v'}.classic.cinematic", "version": "1.0.0"},
                 cookbook={"id": f"minimax.h3.{'fl2va' if mode == 'h3' else 'ref2v'}.classic.cinematic.planned", "version": "1.0.0"},
@@ -231,11 +331,12 @@ def apply_preset(config, preset, source, *, name=""):
     for key in ("profile", "cookbook", "cinematic_settings", "combat_settings", "sensual_settings",
                 "brief_variant_id", "brief_variant_version", "plan_model_id", "writer_model_id",
                 "creative_axes", "creative_audacity", "creative_freedom", "render",
-                "little_men_language", "little_men_context"):
+                "little_men_language", "little_men_context", "little_men_direction_version"):
         result[key] = fresh[key]
     result.update(mode="h3", preset=preset, preset_origin=preset, shot_count=1,
                   final_prompt="", intention={"auto": AUTO_INTENT, "lips": LIPS_INTENT, "little_men": LITTLE_MEN_INTENT,
-                      "little_men_experimental": LITTLE_MEN_EXPERIMENTAL_INTENT}[preset])
+                      "little_men_experimental": LITTLE_MEN_STANDARD_INTENT,
+                      VARIETY_PRESET_ID: LITTLE_MEN_STANDARD_VARIETY_INTENT}[preset])
     result["dlss"] = {"enabled": True}
     result["social"] = dict(enabled=False, language="en", variant_count=3, model_id=WRITER_MODEL)
     if preset == "auto":
@@ -246,9 +347,15 @@ def apply_preset(config, preset, source, *, name=""):
         result["creative_axes"] = dict(scene_life=1, camera=1, extra_motion=1, dialogue=0)
         result["creative_audacity"] = 1
         result["creative_freedom"] = 25
-    if preset == "little_men_experimental":
+    if preset in ("little_men_experimental", VARIETY_PRESET_ID):
         result["render"] = default_render_setup(10)
+        result["little_men_direction_version"] = 8
         result["little_men_context"] = source.get("little_men_context", "") or source.get("intention", "")[:2000]
+        if is_experimental_little_men(config):
+            # Explicit standard-H3 migration preserves admissible language and scene input.
+            language = config.get("little_men_language", "auto")
+            result["little_men_language"] = language if language in THANKS_LANGUAGES else "auto"
+            result["little_men_context"] = config.get("little_men_context", "")
         result["creative_axes"]["camera"] = 1
     result["cinematic_settings"] = {"shot_count": 1}
     for ref in result["references"]:
@@ -270,6 +377,14 @@ def preparation_text(config, *, thanks_selection=None):
                   f"Aligner l’image de fin sur le dernier instant, à {duration:.2f} secondes. "
                   "Adapter tous les temps du plan et du prompt à cette durée.\n\n" + source)
     if is_experimental_little_men(config):
+        if thanks_selection and thanks_selection.get("version") == 8:
+            return preparation_text_v8(config, source, thanks_selection)
+        if thanks_selection and thanks_selection.get("version") == 7:
+            return preparation_text_v7(config, source, thanks_selection)
+        if thanks_selection and thanks_selection.get("version") == 6:
+            return preparation_text_v6(config, source, thanks_selection)
+        if thanks_selection and thanks_selection.get("version") == 5:
+            return preparation_text_v5(config, source, thanks_selection)
         if thanks_selection and thanks_selection.get("version") == 4:
             return preparation_text_v4(config, source, thanks_selection)
         if thanks_selection and thanks_selection.get("version") == 3:
@@ -310,6 +425,9 @@ def validate_shape(config):
         raise ValueError("Mode ou preset inconnu.")
     if config.get("little_men_language", "auto") not in LEGACY_THANKS_LANGUAGES:
         raise ValueError("Langue de remerciement inconnue.")
+    direction_version = config.get("little_men_direction_version")
+    if direction_version is not None and (type(direction_version) is not int or direction_version not in (5, 6, 7, 8)):
+        raise ValueError("Version de direction Petits hommes inconnue.")
     context = config.get("little_men_context", "")
     if not isinstance(context, str) or len(context) > 2000:
         raise ValueError("Contexte du lieu limité à 2000 caractères.")
@@ -427,6 +545,10 @@ def settle(item):
 
 def stage_signature(config, stage):
     keys = set(config) - {"preset", "preset_origin", "render", "dlss", "social"}
+    # Absent in historical configurations: adding an unset marker must not
+    # invalidate their reusable outputs or change their recorded signatures.
+    if config.get("little_men_direction_version") is None:
+        keys.discard("little_men_direction_version")
     if stage in {"video", "dlss", "social"}:
         keys.add("render")
     if stage in {"dlss", "social"}:
@@ -457,17 +579,38 @@ def invalidate(item, before):
         item["steps"][stage] = defaults[stage]
     if content:
         selection = item["runtime"].get("thanks_selection")
+        variety_runtime = {key: deepcopy(item["runtime"][key])
+                           for key in ("variety_preparation_id", "variety_reserved_at", "variety_choice_record")
+                           if key in item["runtime"]}
         item["runtime"] = {}
         if (selection and is_experimental_little_men(after)
-                and selection.get("input_hash") == selection_input(after)):
+                and selection.get("input_hash") == selection_input(after)
+                and not (selection_version(after) in (7, 8) and selection.get("language")
+                         and selection["language"] not in STABLE_THANKS_LANGUAGES)):
             item["runtime"]["thanks_selection"] = deepcopy(selection)
-            if ("intention" in changed and after["intention"] == LITTLE_MEN_EXPERIMENTAL_INTENT):
-                item["runtime"]["thanks_selection"]["version"] = 4
-                item["runtime"]["thanks_selection"]["flood_first_action"] = "plunger"
-                item["runtime"]["thanks_selection"]["drought_result"] = "lush_growth"
-                item["runtime"]["thanks_selection"]["weather_direction"] = "v1"
+            kept = item["runtime"]["thanks_selection"]
+            target_version = selection_version(after)
+            target_intention = {5: LITTLE_MEN_EXPERIMENTAL_INTENT, 6: LITTLE_MEN_VARIETY_INTENT,
+                                7: LITTLE_MEN_ADAPTIVE_INTENT,
+                                8: LITTLE_MEN_STANDARD_VARIETY_INTENT if is_variety(after)
+                                   else LITTLE_MEN_STANDARD_INTENT}[target_version]
+            if (("little_men_direction_version" in changed
+                    and after.get("little_men_direction_version") == target_version)
+                    or ("intention" in changed and after["intention"] == target_intention)):
+                after["little_men_direction_version"] = target_version
+                kept["version"] = target_version
+                for marker in ("flood_first_action", "drought_result", "weather_direction"):
+                    kept.pop(marker, None)
+            if (kept.get("version") != selection.get("version")
+                    or kept.get("version") not in (6, 7, 8) or not is_variety(after)):
+                kept.pop("variety", None)
+            # The frozen assortment belongs to the preparation input; the
+            # resolved choice belongs only to its current approved Plan.
+            kept.pop("variety_choice", None)
+            if kept.get("variety") and kept["variety"] == selection.get("variety"):
+                item["runtime"].update(variety_runtime)
             if selection.get("language"):
-                item["runtime"]["thanks_selection"]["requested_language"] = selection["language"]
+                kept["requested_language"] = selection["language"]
     else:
         for key in (("attempt_id", "render_project_id") if "render" in changed else ()):
             item["runtime"].pop(key, None)
@@ -484,7 +627,7 @@ def invalidate(item, before):
         if saved is None:
             continue
         item["steps"][stage].update(status="succeeded", output=deepcopy(saved["output"]))
-        keys = {"session_id", "source_session_id", "saved_plan", "saved_reference_plan", "episode_inputs", "episode_preparation_id", "thanks_selection"}
+        keys = {"session_id", "source_session_id", "saved_plan", "saved_reference_plan", "episode_inputs", "episode_preparation_id", "thanks_selection", "variety_preparation_id", "variety_reserved_at", "variety_choice_record"}
         if stage == "video":
             keys.update(("render_project_id", "attempt_id"))
         if stage == "dlss":

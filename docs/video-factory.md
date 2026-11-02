@@ -2,6 +2,300 @@
 
 Implémentation du 25 septembre 2026 dans le checkout `D:\Code\panelforge-krea2-flux`, branche `feature/video-factory-2026-09-25`.
 
+## Version actuelle v8 : retour au H3 standard (29 octobre 2026)
+
+Une application explicite de **Petits hommes** ou **Petits hommes experimental**
+sélectionne désormais la direction v8. Les deux presets utilisent à nouveau
+les consignes ordinaires du **Plan et du Writer H3**, la recette éditable et
+son contrat caméra. Le Writer conserve la révision de recette du Plan lors
+de sa génération. Aucune consigne du H3 partagé avec les autres ateliers n'a
+été réécrite pour ce changement.
+
+Les règles Petits hommes sont portées par une intention plus courte et son
+contexte : identifier le besoin principal, choisir une intervention utile,
+montrer un changement durable et le bénéficiaire qui en profite avant le
+merci. Aucun danger n'est inventé pour une scène calme. Si une menace existe,
+elle agit et réagit à l'intervention ; le bénéfice doit résister au danger
+restant. Dix secondes par défaut, un plan continu, main seule ou accessoires
+facultatifs et remerciement unique bref sont conservés. Parapluie, parasol et
+ombrelle restent interdits.
+
+Le **30 octobre**, seule l’intention de **Petits hommes experimental** est
+affinée : accessoires dimensionnés pour la main et autorisés à venir d’une
+autre époque que le village, opération compatible avec la géométrie visible,
+transformation dont l’effet persiste après le retrait et bénéfice concret pour
+les habitants. L’arrivée et le retrait sont courts ; plusieurs gestes liés
+peuvent servir une même solution dans les dix secondes par défaut. Après
+avoir utilisé ou apprécié l’aide, plusieurs habitants regardent la main et
+lèvent un bras au ciel ; un seul prononce le merci bref pendant son retrait.
+La main seule reste possible. Aucun exemple de solution ni quota d’objet
+n’est ajouté. Le preset normal, le prompter, le schéma du Plan, le Writer et
+les validateurs H3 restent inchangés par cet ajustement ; la direction reste
+v8. Après redémarrage manuel, **réappliquer explicitement le preset** aux fiches
+à préparer : une simple reprise ou duplication conserve leur ancienne intention.
+
+Après l’audit des premiers résultats du catalogue 2.0.0 et de huit rendus
+supplémentaires, le passage central privilégie un bénéfice observable traitant
+le besoin principal et une opération réalisable avec la même main dans la
+géométrie de l’image. La variété porte sur les opérations et leurs effets.
+L’accessoire conserve ses propriétés
+reconnaissables ; sa partie utile agit au bon endroit, avec une réaction visible
+de la cible. Les liaisons ou appuis nécessaires au résultat restent après le
+retrait. Si les étapes décisives sont difficiles à montrer dans le temps
+disponible, choisir une intervention plus simple. Les détournements restent
+libres ; la pose, la main seule et plusieurs gestes liés restent possibles.
+La gratitude et la durée sont conservées. Cet ajustement porte uniquement sur
+l’intention expérimentale ; catalogue, sélection, historique et H3 restent
+identiques. Son effet sur les prochains rendus reste à observer, sans garantie
+d’empêcher toutes les déformations du générateur.
+
+La langue fixée fournit une balise complète à recopier dans l'action finale.
+En automatique, le Plan choisit parmi les onze formules autorisées, puis le
+Writer conserve exactement ses mots et sa langue. Les formats et validateurs
+de parole/caméra du H3 standard restent inchangés.
+
+Le Plan normal reprend le schéma H3 ordinaire. L'expérimental ajoute seulement
+`variety_choice` pour enregistrer les accessoires et le mécanisme retenus.
+Depuis le 30 octobre, les nouvelles réservations v8 utilisent le catalogue
+**2.0.0 : 95 objets**, dont un tube de colle, six accessoires supplémentaires
+et huit objets de sport. Le rouleau de scotch garde l’identifiant du rouleau
+adhésif existant. Chaque objet possède deux à quatre propriétés physiques
+neutres ; aucune scène ni association problème/objet n’est fournie.
+
+Les **12 candidats** favorisent les propriétés encore peu représentées dans
+l’assortiment, les objets peu utilisés et une variation déterministe par fiche.
+Les rayons deviennent secondaires. Les usages récents pèsent davantage que
+les simples propositions ; ce sont des préférences souples, sans quota de sport,
+d’accessoire ou d’opération. Main seule et objets extérieurs restent possibles.
+
+Un journal distinct conserve les **50 derniers choix validés et les 50 dernières
+réservations**, avec des dates stables. Il suit l’objet, la famille de mécanisme
+et leur combinaison, y compris main seule et noms extérieurs normalisés.
+Une reprise du même Plan, un rendu ou la suppression d’une fiche ne crée ni
+n’efface une utilisation récente. Les propriétés des douze candidats et un
+résumé borné des combinaisons récentes sont fournis au Plan seulement ; aucun
+appel LLM supplémentaire ni analyse vidéo automatique n’est ajouté.
+
+Les assortiments **1.0.0 déjà figés restent lisibles à l’identique**, sans nouvelles
+propriétés ni reclassification des anciens objets extérieurs. Les directions
+historiques v6/v7 gardent leurs réservations 1.0.0. Les nouveaux objets et le
+journal ne modifient ni l’intention livrée, ni le prompter H3, ni les champs du
+Plan, ni le Writer, ni les règles caméra/parole. Les contrôles de métadonnées
+du catalogue reconnaissent les deux versions.
+
+Après redémarrage manuel, les nouvelles réservations expérimentales v8 utilisent
+le nouveau catalogue. Pour essayer sur une fiche ayant déjà un assortiment figé,
+la dupliquer afin de créer une préparation neuve ; appliquer le preset actuel
+si elle utilise encore une direction historique. Un retry garde l’assortiment
+enregistré. [Liste des 95 objets et propriétés](little-men-objects-v2.csv).
+
+Les noms choisis doivent apparaître dans les actions puis dans
+le Prompt, sans verrouiller le texte entier des actions. Le contrat
+`help_contract`, les références d'actions et les jetons du Writer des v5–v7 ne
+sont plus demandés aux nouvelles préparations. La branche spéciale
+`needs_context` reste historique ; la v8 attend le Plan standard.
+
+Le contexte de l'image et l'assortiment sont réservés au Plan. Le Writer reçoit
+les invariants, actions et choix approuvés. Les anciennes durées ou nombres
+de plans dans les métadonnées ne remplacent pas les réglages vidéo actuels.
+Les choix et la source du Plan restent vérifiés lors d'une édition finale.
+
+Les anciennes fiches et préparations conservent leur version, y compris lors
+d'une simple reprise ou duplication. Après **redémarrage manuel** du service,
+réappliquer le preset voulu aux fiches à migrer, puis préparer leurs nouveaux
+Plan et Prompt. La langue compatible et le contexte sont conservés ; l'ancien
+choix est invalidé et l'expérimental reçoit un nouvel assortiment. Aucun lot
+ni rendu n'est lancé par cette livraison.
+
+Régressions ajoutées dans `test_little_men_standard_contract.py`,
+`test_little_men_standard_requests.py`, `test_little_men_standard_intention.py`
+et `test_video_factory_standard.py`. Les tests restent à exécuter par
+l'utilisateur, avec les commandes indiquées plus bas. Les vérifications
+statiques ne garantissent pas la qualité des futures productions.
+
+Les sections suivantes décrivent les versions historiques, conservées pour
+les préparations déjà enregistrées.
+
+## Historique v7 : aide adaptée au contexte image (29 octobre 2026)
+
+**Petits hommes experimental** (`little_men_variety`) utilise désormais la
+direction `little_men.localized_thanks.v7` lorsque le preset est appliqué.
+Le Plan identifie l'objectif, le besoin et le bénéficiaire avant de choisir
+l'intervention. Il n'impose plus de danger à une activité calme ou à une
+difficulté matérielle. Une menace établie reste perceptible et réagit à l'aide ;
+un animal peut aussi être bénéficiaire ou neutre.
+
+Le contexte déjà lié à l'image de référence éclaire cette lecture : intention
+d'origine, prompt canonique de la tentative ou prompt exécuté à défaut, style
+éventuel. L'image fixe l'état visible initial ; les métadonnées expliquent les
+rôles et phénomènes que l'image fixe montre mal. Respecter les efforts déjà
+engagés et les propriétés fantastiques du monde. Ne pas inventer de crise pour
+justifier l'objet choisi. Une image sans métadonnées reste utilisable si son
+besoin est suffisamment clair.
+
+La v7 transmet le contexte image au Plan uniquement, avec le prompt stocké
+jusqu'à sa limite existante de 12 000 caractères. Le Writer reçoit
+l'interprétation, les invariants, les actions et les choix approuvés du Plan.
+Le nouveau contrat d'aide accepte un danger nul, un état initial statique et
+un bénéficiaire non humain. Il contrôle l'ordre état initial → intervention →
+résultat durable → bénéfice observable → merci final. Les actions sont
+transportées et compilées sans réécriture de leur contenu causal.
+
+Conserver **dix secondes, un plan continu**, plusieurs gestes utiles si
+nécessaire, main seule ou accessoires facultatifs. Les habitants utilisent ou
+apprécient le résultat lorsque c'est pertinent ; sinon montrer l'amélioration
+du bénéficiaire avant leur merci. Un seul remerciement bref et naturel, autour
+d'une seconde, avec les onze langues/formules existantes. **Parapluie, parasol
+et ombrelle restent interdits**, y compris avant soumission d'un Prompt
+personnalisé. La banque de **80 objets**, les **12 propositions**, la mémoire
+récente et les préférences souples entre mécanismes restent celles décrites
+ci-dessous. Aucun exemple de scène ni association problème-objet n'est ajouté.
+
+Le chemin nominal conserve deux appels : Plan puis Prompt. Lorsque ni l'image
+ni le contexte ne permettent de définir une contribution utile, ou qu'une
+contradiction majeure l'empêche, le Plan peut renvoyer `needs_context` et une
+explication. Usine affiche alors l'échec de préparation ; aucun Plan n'est
+approuvé, aucun Writer ou rendu n'est lancé et aucune relance automatique
+n'est ajoutée. Compléter le contexte puis relancer par les actions habituelles.
+Une scène calme ou l'absence de métadonnées seule ne justifie pas cet arrêt.
+
+Les anciennes préparations conservent leur version. Une fiche marquée v6 reste
+en v6 même sans Plan encore préparé. Pour la migrer, **réappliquer explicitement
+Petits hommes experimental**, puis préparer ses nouveaux Plan et Prompt.
+La langue compatible est conservée, la solution précédente est invalidée et
+un nouvel assortiment est réservé pour la v7. Le preset **Petits hommes** reste
+en v5. Aucun changement de fiche ni lancement n'est effectué par la livraison.
+Le code sera chargé au prochain redémarrage manuel de l'application.
+
+Le menu groupé **Appliquer un preset…** et le menu de chaque fiche utilisent
+tous deux les presets fournis par le serveur. Le menu groupé ne conserve plus
+de liste HTML fixe susceptible d'omettre la variante expérimentale.
+
+Les tests ajoutés couvrent contrats, contexte réservé au Plan, deux appels,
+diagnostic sans Writer, migration explicite et maintien des fiches v6. Ils sont
+à lancer par l'utilisateur avec les commandes ci-dessous ; la qualité et la
+pertinence des productions restent à évaluer visuellement.
+
+Conception détaillée : [aide adaptée v7](proposals/little-men-adaptive-help-v7-2026-10-29.md).
+
+## Version v6 : objets et mécanismes variés (29 octobre 2026)
+
+Un second preset, **Petits hommes experimental** (`little_men_variety`), ajoute
+une banque d'objets et une mémoire des mécanismes. Le preset **Petits hommes**
+existant (`little_men_experimental`, direction v5) conserve ses réglages et son
+comportement. Aucun changement automatique des fiches préparées n'est effectué.
+
+Le nouveau preset garde les dix secondes, le plan continu, le danger actif,
+l'aide causale, le bénéfice des habitants puis le merci bref. Le parapluie reste
+interdit. Les deux appels Plan puis Prompt sont conservés.
+
+La banque versionnée contient **80 objets**, dont fermeture éclair et
+sèche-cheveux, répartis en huit groupes d'objets familiers. Elle ne contient
+aucune association objet-problème ou objet-mécanisme, ni scénario à recopier.
+Avant le Plan, l'application réserve **12 objets** en tenant compte des choix
+récents et des propositions en attente dans le lot. Les groupes sont répartis
+dans l'assortiment ; un objet réellement employé pèse davantage qu'une simple
+proposition. La réservation est enregistrée sous verrou avant l'appel modèle.
+Les reprises conservent l'assortiment ; dupliquer une fiche prépare un nouveau
+tirage. Les changements d'image ou de contexte invalidant la sélection en
+préparent également un nouveau.
+
+Le Plan choisit parmi les propositions en privilégiant une intervention adaptée
+à la scène. Il peut retenir un objet extérieur ou la main seule, avec une raison
+explicite. Il déclare les objets réellement utilisés et une famille d'opération
+principale parmi dix familles usuelles : relier, séparer, déplacer, dévier,
+capter/extraire, déformer, modifier la température, soutenir, contenir ou faire
+écran. Une catégorie « autre opération » reste possible si aucune famille ne
+décrit correctement le mécanisme choisi, avec sa description concrète. Le
+mécanisme concret reste décrit dans le contrat d'aide. Les identifiants, les
+noms du catalogue et la présence des objets déclarés dans les actions
+d'intervention sont contrôlés.
+
+La mémoire utilise au plus cinquante autres fiches récemment mises à jour,
+y compris les choix déjà connus des productions en cours. Une fiche compte une
+fois ; ses anciennes révisions ne sont pas recomptées. Une fois le choix du Plan
+connu, ses objets remplacent l'exposition provisoire des douze propositions.
+Les familles moins utilisées sont favorisées, sans quota ni interdiction d'une
+opération pertinente. La diversité reste une préférence : les étiquettes ne
+prouvent pas la variété réelle ou l'efficacité visuelle.
+
+Le Writer reçoit uniquement le Plan approuvé et ses choix, sans l'assortiment
+ni les statistiques de fréquence. Les actions restent protégées comme en v5.
+Une édition manuelle du Prompt ne peut pas réutiliser un ancien assortiment ou
+un autre Plan. La fiche affiche les objets proposés puis les moyens et le
+mécanisme retenus. Les résultats restent classés dans la famille Petits hommes.
+
+Après redémarrage manuel de l'application, sélectionner les fiches en Préparation
+et appliquer **Petits hommes experimental**. Cela invalide le Plan et le Prompt
+si l'on vient d'un autre preset. Aucune nouvelle production n'est lancée par
+l'application du preset seule.
+
+Régressions à lancer par l'utilisateur, sans génération réelle :
+
+```powershell
+python -m unittest discover -s tests -p "test_little_men*.py"
+python -m unittest discover -s tests -p "test_video_factory*.py"
+python -m unittest discover -s tests -p "test_classic_cinematic.py"
+python -m unittest discover -s tests -p "test_video_preparation_recipes.py"
+```
+
+## Petits hommes : danger actif et résolution visible (29 octobre 2026)
+
+Les nouvelles préparations utilisent la direction **v5**, en un plan continu
+avec une durée par défaut de **10 secondes**. Le danger agit à partir de l’image initiale et reste
+actif jusqu’à ce que l’intervention le modifie. Un animal menaçant doit agir sur
+la situation et réagir à l’aide. La même main géante peut intervenir directement
+ou avec des accessoires librement choisis ; aucun objet n’est imposé par une
+catégorie. Les consignes de cette version ne contiennent aucun exemple de
+scénario, d’objet ou de mécanisme.
+
+Les gestes utiles font progresser une même solution, sans quota. Le résultat
+reste visible et efficace après le retrait de la main. Les habitants en profitent
+et interagissent avec lui lorsque cela convient, avant leur unique remerciement.
+Celui-ci termine brièvement la scène, avec un objectif d’environ une seconde à
+un débit naturel selon la langue ; aucune pose collective bras levés ni longue
+pause n’est imposée. L’activité peut continuer pendant la réplique.
+
+**Le parapluie est interdit dans tous les cas**, y compris pluie et neige.
+Les anciennes directions météo et la ventouse obligatoire ne sont plus injectées
+dans les nouvelles préparations. Le Plan visuel identifie le danger principal
+à partir de l’image et de l’intention, au lieu de laisser un mot de la description
+choisir l’objet de la solution.
+
+Le Plan contient un contrat d’aide reliant danger, cible, mécanisme, résultat
+durable et bénéfice des habitants aux actions qui les montrent. Leur ordre et
+leurs références sont validés. Le Writer place des marqueurs pour ces actions
+approuvées ; le compilateur les remplace par leur texte, une seule fois et dans
+l’ordre. Ces marqueurs ne sont jamais envoyés au moteur vidéo. Le contrôle
+textuel du parapluie s’applique au Plan, au Prompt et avant une nouvelle
+soumission de rendu ; les négations et exclusions explicites ne sont pas
+assimilées à un objet choisi. Ces contrôles garantissent une transmission
+structurée, pas la réussite visuelle du mécanisme dans les pixels.
+
+Les deux appels existants, Plan puis Prompt, sont conservés. Le preset dispose
+de consignes v5 propres, sans les exemples de la recette Classique générique ;
+les recettes des autres ateliers et les anciennes préparations restent intactes.
+Les onze langues et leurs formules brèves restent inchangées.
+
+Après chargement du nouveau code, une fiche qui n’a encore jamais été préparée
+adopte v5 à sa première préparation. Les intentions par défaut v2/v3/v4 sont
+alors actualisées ; une intention personnelle est conservée. Pour adopter v5 sur
+une fiche déjà préparée, la remettre en Préparation puis réappliquer explicitement
+**Petits hommes** : son Plan et son Prompt devront être recalculés. Les anciennes
+préparations figées et les tentatives déjà soumises continuent selon leur version.
+Le redémarrage de l’application reste au choix de l’utilisateur, hors production.
+
+Régressions à lancer par l’utilisateur :
+
+```powershell
+python -m unittest discover -s tests -p "test_little_men_causal.py"
+python -m unittest discover -s tests -p "test_video_factory*.py"
+python -m unittest discover -s tests -p "test_classic_cinematic.py"
+```
+
+Les sections datées ci-dessous décrivent les versions antérieures lorsqu’elles
+diffèrent de cette direction v5.
+
 
 ## Retour en préparation par sélection (27 octobre 2026)
 
