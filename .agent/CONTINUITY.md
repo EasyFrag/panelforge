@@ -1,5 +1,56 @@
 # CONTINUITY
 
+## Intégration 2026-11-03 — sauvegarde et nouvelle intention sur master
+
+### Goal
+- Intégrer la sauvegarde GitHub puis la nouvelle intention dans la branche de travail master, avec un état Git propre et une publication sans force.
+
+### Current state
+- Demande utilisateur explicite d’intégration sur master après explication des 73 différences. Référence initiale locale/distante : `cfa6b754d0103d07b6d8c6cd6125bb290987fe4c`. Sauvegarde conservée : `8f6b936195eb354a7670891fa47a54e5089474d9`, branche `snapshots/pre-petits-hommes-intention-2026-11-02`.
+- Revue indépendante : sauvegarde descendante de master, index initial sans changement préparé, 70 fichiers identiques à la sauvegarde et trois seuls écarts : intention expérimentale, documentation Usine et continuité. Module AST identique hors `LITTLE_MEN_STANDARD_VARIETY_INTENT`, texte validé de 2 097 caractères, SHA-256 `9ba56b3c184c34d94b2c92a58b405151a810fd8c5dea20fe0c59b5fb70ea8bc7`.
+- L’intégration conserve deux étapes d’historique : sauvegarde avant changement, puis commit enfant `Refine experimental little-men intention around the visible benefit`. Le déplacement de master et l’alignement de l’index utilisent l’arbre vérifié des fichiers présents, sans réécrire les sources de travail. Aucun changement supplémentaire de logique, de H3, de catalogue ou de preset normal.
+- Reçus de préparation, d’intégration et de vérification finale dans `.agent/diagnostics/master-integration-20261103/` : anciens/nouveaux commits, arbre, index sauvegardé, empreintes des fichiers et résultat de publication. Ce diagnostic fait foi pour les hashes et le statut distant final.
+- Tests non exécutés conformément aux consignes ; aucun import applicatif, appel modèle, génération ou redémarrage. Le checkout de lancement `panelforge-krea2-flux` garde ses fichiers et sa branche propres à ce checkout ; il avait déjà reçu l’intention et n’a pas besoin d’une nouvelle livraison.
+
+### Next steps
+- Après cette intégration, utiliser master comme référence de travail et publier les prochaines évolutions demandées sur la branche choisie explicitement. La sauvegarde avant intention reste disponible.
+- Les essais du preset restent à évaluer séparément ; après chargement du code, réappliquer explicitement le preset aux fiches avant leurs nouveaux Plans/Prompts.
+
+
+
+## Explication 2026-11-03 — 73 différences encore affichées
+
+### Goal
+- Terminé : expliquer pourquoi l’outil Git affiche toujours 73 fichiers différents après la sauvegarde GitHub, sans changer les branches ou publier de nouveaux commits.
+
+### Current state
+- Vérification : branche de travail `master`, HEAD et master distant `cfa6b754…` ; sauvegarde publiée séparément sur `snapshots/pre-petits-hommes-intention-2026-11-02`, commit `8f6b936…`, référence distante confirmée.
+- `git status` affiche 32 fichiers modifiés et 41 non suivis sur master, soit 73. Comparaison des blobs avec normalisation Git : 70 fichiers identiques à la sauvegarde publiée ; seuls `src/panelforge/domain/little_men_direction.py`, `docs/video-factory.md` et `.agent/CONTINUITY.md` diffèrent depuis le point de sauvegarde. Aucun fichier perdu ; l’index et master avaient été volontairement conservés pendant la capture isolée.
+- L’intention nouvelle est installée localement mais ne fait pas partie de la sauvegarde AVANT changement. Aucun commit, push, déplacement de branche, test ou lancement applicatif effectué pour cette explication.
+
+### Next steps
+- Expliquer la distinction entre sauvegarde sur une branche séparée et état propre de la branche de travail. Si l’utilisateur demande l’alignement/publication, conserver le point avant changement et enregistrer la nouvelle intention séparément, sans écraser les travaux locaux ni utiliser de remise à zéro destructive.
+
+## Implémentation 2026-11-02 — sauvegarde GitHub puis nouvelle intention expérimentale
+
+### Goal
+- Terminé : publier une version GitHub avant modification, puis implémenter exactement l’intention validée pour « Petits hommes experimental ». Périmètre applicatif limité à l’intention.
+
+### Current state
+- Sauvegarde AVANT changement publiée et référence distante vérifiée : commit `8f6b936195eb354a7670891fa47a54e5089474d9`, branche `snapshots/pre-petits-hommes-intention-2026-11-02`, dépôt `https://github.com/EasyFrag/panelforge`. Parent `cfa6b754d0103d07b6d8c6cd6125bb290987fe4c`, arbre `9230f64b1e67ff6672051f8a9dbd8cc88741e582`. 73 fichiers ajoutés/modifiés représentant les travaux antérieurs ; index Git isolé, HEAD/master et index ordinaires conservés, master distant inchangé. Runtime, médias, .env et diagnostics ignorés exclus. Aucun motif de secret retenu ; un faux positif sur un chemin journey-mask a été identifié avant publication.
+- Seule modification applicative après sauvegarde : remplacement de `LITTLE_MEN_STANDARD_VARIETY_INTENT` dans `src/panelforge/domain/little_men_direction.py`. Texte strictement identique à la proposition approuvée, paragraphes compris : 2 319 → 2 097 caractères, SHA-256 `9ba56b3c184c34d94b2c92a58b405151a810fd8c5dea20fe0c59b5fb70ea8bc7`, ancienne empreinte `4a935785ee19…`.
+- Nouvelle intention : changement concret répondant au besoin source ; opération au bon endroit et dans le bon sens, compatible avec les propriétés du monde ; cible avant/geste/état après ; étapes nécessaires sur place réellement montrées ; origine/déplacement/destination des transferts lisibles ; maintien après retrait ; simplification de la manipulation sans substitution d’un détail au besoin principal ; bénéfice puis bras levés et unique merci bref.
+- Main seule, accessoires facultatifs, variété, échelle et époque libres, aide locale, bénéficiaire non humain et interdiction parapluie/parasol/ombrelle conservés. Direction v8, H3 commun, schéma du Plan, Writer, validateurs, preset normal, catalogue 95, sélection, historique et dix secondes par défaut inchangés. Aucun fichier de production ou fiche modifié.
+- Documentation `docs/video-factory.md` actualisée. Comparaison sur 766 fichiers source/tests : un seul fichier applicatif modifié ; AST du module entier identique hors constante, égalité exacte au texte validé, `git diff --check` ciblé sans erreur. Revue indépendante favorable. Aucun test ni import applicatif exécuté ; aucun appel modèle, génération ou démarrage/redémarrage.
+- Livraison vérifiée à 19:58:31 Paris / 18:58:31 UTC dans `D:/Code/panelforge-krea2-flux`, après comparaison et sauvegarde des deux fichiers cibles, identiques à la base source avant copie. SHA fichier Python livré `a0f0cce8304667ad6184af390e2ae12ace2080a61c4d3fe0a0818aed261877f7`. Aucun service PanelForge détecté lors du contrôle de début de tâche ; aucun lancement effectué. Continuité ajoutée séparément dans chaque checkout, sans remplacer leurs historiques respectifs.
+- Diagnostics et reçus : `.agent/diagnostics/petit-homme-intent-implementation-20261102/` (snapshot-preflight.json, snapshot.json, sauvegardes source/cible, implementation.diff, static-review.json, delivery.json). La sauvegarde GitHub précède le patch ; l’implémentation suivante reste locale dans les deux checkouts, sans commit/push supplémentaire.
+
+### Next steps
+- Au démarrage choisi par l’utilisateur, charger le code actualisé puis réappliquer explicitement « Petits hommes experimental » aux fiches à préparer, avant leurs nouveaux Plans et Prompts. Une reprise ou duplication seule conserve l’ancienne intention. Ne pas migrer automatiquement les productions existantes.
+- Évaluer besoin réellement traité, action décisive montrée, propriétés du monde respectées et bénéfice utilisé avant merci sur les mêmes images sources. Aucun changement H3 à envisager sans preuve nouvelle ; effets visuels de l’intention encore à observer.
+
+
+
 ## Proposition 2026-11-02 — intention seule, choix du changement et continuité de l’action
 
 ### Goal

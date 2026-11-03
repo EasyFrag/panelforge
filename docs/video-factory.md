@@ -34,20 +34,26 @@ les validateurs H3 restent inchangés par cet ajustement ; la direction reste
 v8. Après redémarrage manuel, **réappliquer explicitement le preset** aux fiches
 à préparer : une simple reprise ou duplication conserve leur ancienne intention.
 
-Après l’audit des premiers résultats du catalogue 2.0.0 et de huit rendus
-supplémentaires, le passage central privilégie un bénéfice observable traitant
-le besoin principal et une opération réalisable avec la même main dans la
-géométrie de l’image. La variété porte sur les opérations et leurs effets.
-L’accessoire conserve ses propriétés
-reconnaissables ; sa partie utile agit au bon endroit, avec une réaction visible
-de la cible. Les liaisons ou appuis nécessaires au résultat restent après le
-retrait. Si les étapes décisives sont difficiles à montrer dans le temps
-disponible, choisir une intervention plus simple. Les détournements restent
-libres ; la pose, la main seule et plusieurs gestes liés restent possibles.
-La gratitude et la durée sont conservées. Cet ajustement porte uniquement sur
-l’intention expérimentale ; catalogue, sélection, historique et H3 restent
-identiques. Son effet sur les prochains rendus reste à observer, sans garantie
-d’empêcher toutes les déformations du générateur.
+Le **2 novembre**, après l’audit du gros batch, seule l’intention expérimentale
+est reformulée pour choisir d’abord le changement concret répondant au besoin
+source, puis l’opération au bon endroit et dans le bon sens. La solution doit
+fonctionner avec les propriétés établies du monde ou montrer ce qui les
+contraint localement. La scène montre la cible avant l’intervention, le geste
+qui la transforme et son état après ; aucune étape nécessaire sur place n’est
+supposée déjà accomplie. Pour un transfert, le point de départ, le déplacement
+et la destination doivent être lisibles. Les appuis ou liaisons nécessaires
+restent après le retrait de la main. Simplifier la manipulation ne doit pas
+remplacer le besoin principal par un détail plus facile ; une aide locale
+reste valable si le bénéficiaire en profite malgré la situation qui continue.
+La pose, la main seule, les détournements et plusieurs gestes liés restent
+possibles. Le bénéfice précède les bras levés et l’unique merci bref ; dix
+secondes restent la durée par défaut. Le texte validé passe de 2 319 à 2 097
+caractères, avec des paragraphes. Le preset normal, la direction v8, le Plan,
+le Writer, les validateurs H3, le catalogue, la sélection et l’historique
+restent identiques. Son effet sur les prochains rendus reste à observer, sans
+garantie d’empêcher toutes les déformations du générateur. Après chargement
+du nouveau code, réappliquer explicitement le preset avant de préparer de
+nouveaux Plans et Prompts ; les fiches existantes ne sont pas migrées.
 
 La langue fixée fournit une balise complète à recopier dans l'action finale.
 En automatique, le Plan choisit parmi les onze formules autorisées, puis le
